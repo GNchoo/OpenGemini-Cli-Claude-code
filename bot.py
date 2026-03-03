@@ -23,7 +23,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0") or 0)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_BIN = os.getenv("GEMINI_BIN", "/home/linuxbrew/.linuxbrew/bin/gemini").strip()
-GEMINI_MODEL_DEFAULT = os.getenv("GEMINI_MODEL", "")
+GEMINI_MODEL_DEFAULT = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 GEMINI_WORKDIR = os.getenv("GEMINI_WORKDIR", os.getcwd()).strip()
 GEMINI_APPROVAL_MODE = os.getenv("GEMINI_APPROVAL_MODE", "yolo").strip()  # default|auto_edit|yolo|plan
 GEMINI_SANDBOX = os.getenv("GEMINI_SANDBOX", "true").strip().lower() in ("1", "true", "yes", "on")
@@ -66,7 +66,7 @@ def _chunk_text(text: str, size: int = MSG_CHUNK) -> List[str]:
     return chunks
 
 
-async def _run_gemini(prompt: str, model: Optional[str] = None) -> tuple[int, str, str]:
+async def _run_gemini(prompt: str, model: Optional[str] = None, timeout_sec: int = 45) -> tuple[int, str, str]:
     env = os.environ.copy()
     if GEMINI_API_KEY:
         env["GEMINI_API_KEY"] = GEMINI_API_KEY
@@ -93,7 +93,14 @@ async def _run_gemini(prompt: str, model: Optional[str] = None) -> tuple[int, st
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    out_b, err_b = await proc.communicate()
+
+    try:
+        out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return 124, "", f"Gemini timeout after {timeout_sec}s"
+
     out = out_b.decode("utf-8", errors="replace").strip()
     err = err_b.decode("utf-8", errors="replace").strip()
     return proc.returncode, out, err
@@ -163,8 +170,20 @@ async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     model = " ".join(context.args).strip()
+
+    await update.message.reply_text(f"모델 검증 중: {model}")
+    rc, out, err = await _run_gemini("say ok", model=model, timeout_sec=20)
+    if rc != 0:
+        msg = (
+            f"❌ 모델 설정 실패: {model}\n"
+            f"오류: {(err or out or 'unknown')[:500]}\n"
+            "권장: /model gemini-2.5-pro"
+        )
+        await update.message.reply_text(msg)
+        return
+
     context.application.bot_data["model"] = model
-    await update.message.reply_text(f"모델 설정 완료: {model}")
+    await update.message.reply_text(f"✅ 모델 설정 완료: {model}")
 
 
 async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -210,10 +229,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     rc, out, err = await _run_gemini(text, model=model)
 
     if rc != 0:
+        hint = ""
+        em = (err or out or "")
+        if "ModelNotFoundError" in em or "Requested entity was not found" in em:
+            hint = "\n\n모델명이 잘못됐을 가능성이 큽니다. `/model gemini-2.5-pro`로 변경해 보세요."
+        elif "timeout" in em.lower():
+            hint = "\n\n요청이 오래 걸려 타임아웃됐습니다. 짧은 질문으로 다시 시도해 주세요."
+
         msg = (
             "❌ Gemini 실행 실패\n"
             f"exit={rc}\n"
-            f"stderr:\n{err or '(none)'}"
+            f"stderr:\n{em or '(none)'}{hint}"
         )
         for ch in _chunk_text(msg):
             await update.message.reply_text(ch)
