@@ -55,8 +55,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=~/tools/tg_gemini/venv/bin/python3 -u ~/tools/tg_gemini/bot.py
-WorkingDirectory=~/tools/tg_gemini
+ExecStart=/path/to/tg_gemini/venv/bin/python3 -u /path/to/tg_gemini/bot.py
+WorkingDirectory=/path/to/tg_gemini
 Restart=always
 RestartSec=5
 StandardOutput=journal
