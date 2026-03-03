@@ -1,13 +1,11 @@
-import os
-import pexpect
-import asyncio
-from typing import Optional
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # --- Configuration ---
-TELEGRAM_TOKEN = "REDACTED_TELEGRAM_TOKEN"
-ALLOWED_USER_ID = REDACTED_USER_ID
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", 0))
 
 # Global state for the gemini process
 gemini_process: Optional[pexpect.spawn] = None
@@ -27,7 +25,7 @@ def _ensure_gemini_running():
         print("Starting new gemini process...")
         # Prepare environment with API key to bypass key prompt if supported
         env = os.environ.copy()
-        env['GEMINI_API_KEY'] = 'REDACTED_GEMINI_KEY'
+        env['GEMINI_API_KEY'] = os.getenv("GEMINI_API_KEY")
         
         # Start gemini chat mode. 
         gemini_process = pexpect.spawn('/home/linuxbrew/.linuxbrew/bin/gemini chat', env=env, encoding='utf-8', timeout=0.1)
@@ -54,7 +52,7 @@ def _ensure_gemini_running():
                     continue
                 elif idx == 3:
                     print("Auto-providing API key...")
-                    gemini_process.sendline("REDACTED_GEMINI_KEY")
+                    gemini_process.sendline(os.getenv("GEMINI_API_KEY"))
                 else:
                     # Timeout or EOF -> initial setup is likely done
                     break
