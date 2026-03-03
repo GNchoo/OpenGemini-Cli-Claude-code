@@ -1,236 +1,235 @@
-from dotenv import load_dotenv
+#!/usr/bin/env python3
+import asyncio
+import os
+import shlex
+from typing import Optional, List
 
-# Load environment variables
+from dotenv import load_dotenv
+from telegram import Update, BotCommand
+from telegram.constants import ChatAction, ParseMode
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
 load_dotenv()
 
-# --- Configuration ---
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", 0))
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
+ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0") or 0)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_BIN = os.getenv("GEMINI_BIN", "/home/linuxbrew/.linuxbrew/bin/gemini").strip()
+GEMINI_MODEL_DEFAULT = os.getenv("GEMINI_MODEL", "")
+GEMINI_WORKDIR = os.getenv("GEMINI_WORKDIR", os.getcwd()).strip()
 
-# Global state for the gemini process
-gemini_process: Optional[pexpect.spawn] = None
-is_reading = False
+TELEGRAM_MAX = 4096
+MSG_CHUNK = 3800
+
+
+def _authorized(update: Update) -> bool:
+    user = update.effective_user
+    return bool(user and user.id == ALLOWED_USER_ID)
+
+
+def _chunk_text(text: str, size: int = MSG_CHUNK) -> List[str]:
+    if len(text) <= size:
+        return [text]
+    chunks: List[str] = []
+    cur = ""
+    for line in text.splitlines(True):
+        if len(cur) + len(line) > size:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur += line
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+async def _run_gemini(prompt: str, model: Optional[str] = None) -> tuple[int, str, str]:
+    env = os.environ.copy()
+    if GEMINI_API_KEY:
+        env["GEMINI_API_KEY"] = GEMINI_API_KEY
+
+    cmd = [GEMINI_BIN]
+    if model:
+        cmd += ["-m", model]
+    cmd += ["-p", prompt, "--output-format", "text"]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=GEMINI_WORKDIR,
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out_b, err_b = await proc.communicate()
+    out = out_b.decode("utf-8", errors="replace").strip()
+    err = err_b.decode("utf-8", errors="replace").strip()
+    return proc.returncode, out, err
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-    if update.effective_user.id != ALLOWED_USER_ID:
+    if not _authorized(update):
         return
-    await update.message.reply_text('Hello! I am your Gemini CLI Telegram Agent. I am ready to accept prompts.')
-    _ensure_gemini_running()
+    await update.message.reply_text(
+        "✅ N100 Gemini Bot 준비 완료\n"
+        "- 일반 메시지를 보내면 Gemini CLI로 처리합니다.\n"
+        "- /help 로 명령어 확인"
+    )
 
-def _ensure_gemini_running():
-    """Ensure the gemini process is running"""
-    global gemini_process
-    if gemini_process is None or not gemini_process.isalive():
-        print("Starting new gemini process...")
-        # Prepare environment with API key to bypass key prompt if supported
-        env = os.environ.copy()
-        env['GEMINI_API_KEY'] = os.getenv("GEMINI_API_KEY")
-        
-        # Start gemini chat mode. 
-        gemini_process = pexpect.spawn('/home/linuxbrew/.linuxbrew/bin/gemini chat', env=env, encoding='utf-8', timeout=0.1)
-        # Handle initial prompts
-        try:
-            # Look for typical prompts or anything waiting for input
-            while True:
-                idx = gemini_process.expect([
-                    r'Do you trust this folder\?',
-                    r'Attempting to automatically update now',
-                    r'Update successful',
-                    r'Enter Gemini API Key',
-                    pexpect.EOF,
-                    pexpect.TIMEOUT
-                ], timeout=2)
-                
-                if idx == 0:
-                    # Trust folder prompt -> select option 1 and press Enter
-                    print("Auto-trusting folder...")
-                    gemini_process.sendline("1") # sendline sends \r\n
-                elif idx == 1 or idx == 2:
-                    # Update prompt -> wait a bit more
-                    print("Handling update prompt...")
-                    continue
-                elif idx == 3:
-                    print("Auto-providing API key...")
-                    gemini_process.sendline(os.getenv("GEMINI_API_KEY"))
-                else:
-                    # Timeout or EOF -> initial setup is likely done
-                    break
-                    
-        except Exception as e:
-            print(f"Error during initial prompt handling: {e}")
-            pass
-            
-        # Drain any remaining initial output
-        try:
-            gemini_process.read_nonblocking(size=10000, timeout=1)
-        except (pexpect.TIMEOUT, pexpect.EOF):
-            pass
 
-async def _read_and_send_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Wait for response from gemini_process and stream it back."""
-    global is_reading
-    is_reading = True
-    full_response = ""
-    idle_count = 0
-    max_idle = 20  # 2 seconds without output -> assume generation finished
-    
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return
+    model = context.application.bot_data.get("model") or GEMINI_MODEL_DEFAULT or "(기본)"
+    txt = (
+        "🤖 *N100 Gemini Bot*\n\n"
+        "*명령어*\n"
+        "/start - 시작\n"
+        "/help - 도움말\n"
+        "/model [name] - 모델 조회/설정\n"
+        "/status - 실행 상태\n"
+        "/restart - 봇 프로세스 재기동 안내\n"
+        "/update - Gemini CLI 업데이트\n\n"
+        f"현재 모델: `{model}`\n"
+        f"Gemini 바이너리: `{GEMINI_BIN}`\n"
+        f"작업 디렉토리: `{GEMINI_WORKDIR}`"
+    )
+    await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
+
+
+async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return
+
+    model = context.application.bot_data.get("model") or GEMINI_MODEL_DEFAULT or "(기본)"
     try:
-        while is_reading:
-            try:
-                # Read a chunk of output
-                chunk = gemini_process.read_nonblocking(size=1024, timeout=0.1)
-                full_response += chunk
-                idle_count = 0
-            except pexpect.TIMEOUT:
-                # No new output in this 0.1s window. Check if we should stop.
-                idle_count += 1
-                if idle_count >= max_idle:
-                    break
-            except pexpect.EOF:
-                # Process died
-                full_response += "\n[System: Gemini process terminated]"
-                break
-                
-            await asyncio.sleep(0.01)
-            
-    finally:
-        is_reading = False
-        
-    # Clean up the response (remove the prompt echoes and CLI artifacts if any)
-    response_text = full_response.strip()
-    
-    # Send the response back to Telegram in chunks if it's too long
-    if response_text:
-        # Telegram max message length is 4096
-        chunk_size = 4000
-        for i in range(0, len(response_text), chunk_size):
-            chunk = response_text[i:i+chunk_size]
-            if chunk.strip():
-                try:
-                    await update.message.reply_text(chunk)
-                except Exception as e:
-                    print(f"Error sending message: {e}")
-    else:
-        await update.message.reply_text("[No output received from Gemini]")
+        proc = await asyncio.create_subprocess_exec(
+            GEMINI_BIN,
+            "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await proc.communicate()
+        ver = (out.decode().strip() or err.decode().strip() or "unknown")
+    except Exception as e:
+        ver = f"error: {e}"
+
+    await update.message.reply_text(
+        f"상태\n- model: {model}\n- gemini: {ver}\n- workdir: {GEMINI_WORKDIR}"
+    )
+
+
+async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return
+
+    if not context.args:
+        cur = context.application.bot_data.get("model") or GEMINI_MODEL_DEFAULT or "(기본)"
+        await update.message.reply_text(f"현재 모델: {cur}\n사용법: /model gemini-2.5-pro")
+        return
+
+    model = " ".join(context.args).strip()
+    context.application.bot_data["model"] = model
+    await update.message.reply_text(f"모델 설정 완료: {model}")
+
+
+async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return
+    await update.message.reply_text("ℹ️ 이 봇은 요청마다 Gemini를 headless로 실행하므로 별도 세션 재시작이 필요 없습니다.")
+
+
+async def update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return
+
+    await update.message.reply_text("Gemini CLI 업데이트 중...")
+    cmd = "npm install -g @google/gemini-cli --force"
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out_b, err_b = await proc.communicate()
+    out = out_b.decode("utf-8", errors="replace")
+    err = err_b.decode("utf-8", errors="replace")
+
+    result = f"[Update Result]\nexit={proc.returncode}\n\n{out}"
+    if err.strip():
+        result += f"\n\nErrors:\n{err}"
+
+    for ch in _chunk_text(result):
+        await update.message.reply_text(ch)
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle incoming messages from the allowed user and forward them to gemini."""
-    global gemini_process
-    
-    if update.effective_user.id != ALLOWED_USER_ID:
-        print(f"Blocked message from unauthorized user: {update.effective_user.id}")
+    if not _authorized(update):
         return
 
-    text = update.message.text
+    text = (update.message.text or "").strip()
     if not text:
         return
 
-    _ensure_gemini_running()
-    
-    # Send the user's text to the gemini process
-    gemini_process.sendline(text)
-    
-    # Send an initial typing indicator
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
-    
-    await _read_and_send_response(update, context)
+    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
 
-async def restart_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Command to forcibly restart the backend gemini process."""
-    global gemini_process
-    if update.effective_user.id != ALLOWED_USER_ID:
-        return
-        
-    if gemini_process and gemini_process.isalive():
-        gemini_process.terminate(force=True)
-    
-    _ensure_gemini_running()
-    await update.message.reply_text("Backend Gemini process restarted.")
+    model = context.application.bot_data.get("model") or GEMINI_MODEL_DEFAULT or None
+    rc, out, err = await _run_gemini(text, model=model)
 
-async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Pass /model command to the backend gemini process."""
-    if update.effective_user.id != ALLOWED_USER_ID:
+    if rc != 0:
+        msg = (
+            "❌ Gemini 실행 실패\n"
+            f"exit={rc}\n"
+            f"stderr:\n{err or '(none)'}"
+        )
+        for ch in _chunk_text(msg):
+            await update.message.reply_text(ch)
         return
-        
-    _ensure_gemini_running()
-    
-    # Extract the command and args (e.g. /model pro)
-    text = update.message.text
-    gemini_process.sendline(text)
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
-    
-    await _read_and_send_response(update, context)
 
-async def update_cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Run npm install -g gemini to update the underlying CLI."""
-    if update.effective_user.id != ALLOWED_USER_ID:
-        return
-        
-    await update.message.reply_text("Updating Gemini CLI... This may take a minute.")
-    
-    # We run this in the shell, not through the pexpect chat process
-    process = await asyncio.create_subprocess_shell(
-        'npm install -g gemini',
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await process.communicate()
-    
-    # Send the result back
-    result = "[Update Result]\n"
-    if stdout:
-        result += stdout.decode()
-    if stderr:
-        result += f"\nErrors:\n{stderr.decode()}"
-        
-    # Chunk and send
-    chunk_size = 4000
-    for i in range(0, len(result), chunk_size):
-        chunk = result[i:i+chunk_size]
-        if chunk.strip():
-            await update.message.reply_text(chunk)
-            
-    # Restart the backend process so it picks up the new version
-    await restart_process(update, context)
+    if not out:
+        out = "(응답 없음)"
 
-async def send_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send help text with available commands."""
-    if update.effective_user.id != ALLOWED_USER_ID:
-        return
-        
-    help_text = (
-        "🤖 **Telegram Gemini CLI Agent**\n\n"
-        "**Commands:**\n"
-        "/start - Start the bot\n"
-        "/restart - Restart the backend Gemini process\n"
-        "/model [name] - Switch the Gemini model (e.g., /model pro)\n"
-        "/update - Update the Gemini CLI to the latest version via npm\n"
-        "/help - Show this help message\n\n"
-        "Any other text will be sent directly to the Gemini CLI chat interface."
-    )
-    await update.message.reply_text(help_text, parse_mode='Markdown')
+    for ch in _chunk_text(out):
+        await update.message.reply_text(ch)
+
+
+async def post_init(app: Application) -> None:
+    commands = [
+        BotCommand("start", "봇 시작"),
+        BotCommand("help", "도움말"),
+        BotCommand("model", "모델 조회/설정"),
+        BotCommand("status", "상태 확인"),
+        BotCommand("restart", "재시작 안내"),
+        BotCommand("update", "Gemini CLI 업데이트"),
+    ]
+    await app.bot.set_my_commands(commands)
+
 
 def main() -> None:
-    """Start the bot."""
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    if not TELEGRAM_TOKEN:
+        raise RuntimeError("TELEGRAM_TOKEN is missing")
+    if ALLOWED_USER_ID == 0:
+        raise RuntimeError("ALLOWED_USER_ID is missing")
+    if not os.path.exists(GEMINI_BIN):
+        raise RuntimeError(f"GEMINI_BIN not found: {GEMINI_BIN}")
 
-    # Commands
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("restart", restart_process))
-    application.add_handler(CommandHandler("model", set_model))
-    application.add_handler(CommandHandler("update", update_cli))
-    application.add_handler(CommandHandler("help", send_help))
+    app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
 
-    # General messages
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CommandHandler("model", model_cmd))
+    app.add_handler(CommandHandler("restart", restart_cmd))
+    app.add_handler(CommandHandler("update", update_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Start the Gemini process before polling
-    _ensure_gemini_running()
+    print("N100 Gemini bot polling...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-    print("Bot is polling...")
-    # Run the bot
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
