@@ -142,7 +142,7 @@ class AutoTrader:
         paper_mode=True  : 모의 거래 (실제 주문 X, 로그만)
         paper_mode=False : 실제 주문 (소액 테스트 권장)
         """
-        self.symbols    = symbols or ["KRW-BTC", "KRW-ETH"]
+        self.symbols    = symbols or ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-ADA", "KRW-DOGE", "KRW-DOT", "KRW-LINK", "KRW-POL", "KRW-AVAX"]
         self.paper_mode = paper_mode
 
         # 서브 모듈
