@@ -124,6 +124,8 @@ class PersistentGemini:
             self.child.terminate(force=True)
 
 persistent_gemini = PersistentGemini(GEMINI_BIN, GEMINI_MODEL_DEFAULT)
+# 텔레그램 업데이트가 동시에 들어와 응답 순서가 꼬이지 않도록 직렬화
+RUN_LOCK = asyncio.Lock()
 
 
 def _acquire_singleton_lock() -> None:
@@ -374,22 +376,34 @@ async def update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _authorized(update):
-        return
-
+    user = update.effective_user
+    user_id = user.id if user else 0
     text = (update.message.text or "").strip()
+
+    print(f"[msg] From {user_id}: {text[:50]}")
+
+    if not _authorized(update):
+        print(f"[auth] Unauthorized access attempt from user_id: {user_id}")
+        return
     if not text:
         return
 
     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
 
-    out = await persistent_gemini.query(text)
+    # 업데이트 동시 처리 시 응답 순서 꼬임 방지
+    async with RUN_LOCK:
+        model = context.application.bot_data.get("model") or GEMINI_MODEL_DEFAULT
+        rc, out, err = await _run_gemini(text, model=model, timeout_sec=90)
 
-    if not out:
-        out = "(응답 없음)"
+        if rc != 0:
+            msg = f"❌ Gemini 실행 실패 (exit={rc})\n{(err or out or '응답 없음')[:1500]}"
+            for ch in _chunk_text(msg):
+                await update.message.reply_text(ch)
+            return
 
-    for ch in _chunk_text(out):
-        await update.message.reply_text(ch)
+        out = (out or "").strip() or "(응답 없음)"
+        for ch in _chunk_text(out):
+            await update.message.reply_text(ch)
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
