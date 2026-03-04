@@ -23,7 +23,7 @@ except ImportError:
 
 UPBIT_WS_URL = "wss://api.upbit.com/websocket/v1"
 
-# 구독할 심볼
+# 구독할 심볼 (메이저 코인 확장)
 DEFAULT_SYMBOLS = ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-ADA", "KRW-DOGE", "KRW-DOT", "KRW-LINK", "KRW-POL", "KRW-AVAX"]
 
 
@@ -162,6 +162,25 @@ class UpbitWebSocketClient:
     def _on_close(self, ws, close_status_code, close_msg):
         print(f"  🔌 WebSocket 연결 종료: {close_status_code} {close_msg}")
         self.connected = False
+
+    def update_symbols(self, new_symbols: list):
+        """구독 심볼 동적 업데이트"""
+        with self._lock:
+            added = [s for s in new_symbols if s not in self.symbols]
+            if not added:
+                return
+            
+            self.symbols = list(set(self.symbols + new_symbols))
+            for s in added:
+                if s not in self.price_history:
+                    self.price_history[s] = deque(maxlen=200)
+            
+            if self.connected and self.ws:
+                try:
+                    self.ws.send(self._build_subscribe_message())
+                    print(f"📡 구독 심볼 업데이트 완료: {len(self.symbols)}개")
+                except Exception as e:
+                    print(f"  ❌ 구독 업데이트 중 오류: {e}")
 
     def connect(self):
         """WebSocket 연결 (실제 업비트)"""

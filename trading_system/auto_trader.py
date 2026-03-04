@@ -8,6 +8,7 @@ import os
 import json
 import time
 import threading
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -53,9 +54,9 @@ AI_STATUS_FILE = Path(__file__).parent / 'ai_status_live.json'
 BASELINE_FILE = Path(__file__).parent / 'live_baseline.json'
 TRADE_LOG_MAX_ITEMS = 5000  # 거래 로그 보존 개수(기존 500 → 손절/익절 이력 보존 강화)
 PROFILE_CONFIG = {
-    'SAFE': {'risk_scale': 0.6, 'min_conf': 0.72, 'scalp_take_profit': None, 'max_order_ratio': 0.60, 'ai_sell_min_hold_sec': 1200, 'min_net_profit_krw': 200, 'auto_stoploss_time_sec': 7200, 'auto_stoploss_threshold_pct': -0.02, 'signal_interval_sec': 5, 'same_signal_cooldown_sec': 20},
-    'BALANCED': {'risk_scale': 1.0, 'min_conf': 0.65, 'scalp_take_profit': None, 'max_order_ratio': 0.60, 'ai_sell_min_hold_sec': 900, 'min_net_profit_krw': 150, 'auto_stoploss_time_sec': 7200, 'auto_stoploss_threshold_pct': -0.02, 'signal_interval_sec': 5, 'same_signal_cooldown_sec': 20},
-    'AGGRESSIVE': {'risk_scale': 1.4, 'min_conf': 0.60, 'scalp_take_profit': None, 'max_order_ratio': 0.60, 'ai_sell_min_hold_sec': 600, 'min_net_profit_krw': 100, 'auto_stoploss_time_sec': 7200, 'auto_stoploss_threshold_pct': -0.02, 'signal_interval_sec': 5, 'same_signal_cooldown_sec': 20},
+    'SAFE': {'risk_scale': 0.6, 'min_conf': 0.72, 'scalp_take_profit': None, 'max_order_ratio': 0.60, 'ai_sell_min_hold_sec': 1200, 'min_net_profit_krw': 0, 'auto_stoploss_time_sec': 7200, 'auto_stoploss_threshold_pct': -0.02, 'signal_interval_sec': 5, 'same_signal_cooldown_sec': 20},
+    'BALANCED': {'risk_scale': 1.0, 'min_conf': 0.65, 'scalp_take_profit': None, 'max_order_ratio': 0.60, 'ai_sell_min_hold_sec': 900, 'min_net_profit_krw': 0, 'auto_stoploss_time_sec': 7200, 'auto_stoploss_threshold_pct': -0.02, 'signal_interval_sec': 5, 'same_signal_cooldown_sec': 20},
+    'AGGRESSIVE': {'risk_scale': 1.4, 'min_conf': 0.60, 'scalp_take_profit': None, 'max_order_ratio': 0.60, 'ai_sell_min_hold_sec': 600, 'min_net_profit_krw': 0, 'auto_stoploss_time_sec': 7200, 'auto_stoploss_threshold_pct': -0.02, 'signal_interval_sec': 5, 'same_signal_cooldown_sec': 20},
     # Freqtrade 스캘핑 전략 참고: 빠른 익절, 적절한 보유시간
     'SCALP': {
         'risk_scale': 1.0,
@@ -79,16 +80,16 @@ PROFILE_CONFIG = {
     # Jesse/Freqtrade 참고: 리스크/리워드 2:1, 적절한 보유시간
     'ALL_IN': {
         'risk_scale': 1.0,
-        'min_conf': 0.75,  # 75% (경계 신호 진입 축소)
-        'buy_confirmations': 3,  # 동일 방향 BUY 신호 3회 연속 확인 후 진입
+        'min_conf': 0.70,  # 70% (유연한 진입을 위해 소폭 완화)
+        'buy_confirmations': 2,  # 2회 연속 확인으로 반응성 개선
         'scalp_take_profit': None,
         'max_order_ratio': 0.98,
-        'max_symbol_cap_ratio': 1/3,
-        'ai_sell_min_hold_sec': 600,  # 10분 (수수료 회수 + 추세 확인)
-        'min_net_profit_krw': 100,  # 100원 (수수료의 12배, 안전 마진)
-        'risk_reward_ratio': 2.0,  # 손실 1 : 수익 2 (Jesse 권장)
-        'auto_stoploss_time_sec': 7200,  # 2시간 (기회비용 고려)
-        'auto_stoploss_threshold_pct': -0.02,  # -2% (손실 허용 범위)
+        'max_symbol_cap_ratio': 1/5,  # 5분할 (20%)
+        'ai_sell_min_hold_sec': 300,  # 5분 (빠른 회전)
+        'min_net_profit_krw': 50,    # 50원
+        'risk_reward_ratio': 2.0,
+        'auto_stoploss_time_sec': 5400,  # 90분
+        'auto_stoploss_threshold_pct': -0.015,  # -1.5%
         'signal_interval_sec': 5,
         'same_signal_cooldown_sec': 20,
     },
@@ -142,7 +143,7 @@ class AutoTrader:
         paper_mode=True  : 모의 거래 (실제 주문 X, 로그만)
         paper_mode=False : 실제 주문 (소액 테스트 권장)
         """
-        self.symbols    = symbols or ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-ADA", "KRW-DOGE", "KRW-DOT", "KRW-LINK", "KRW-POL", "KRW-AVAX"]
+        self.symbols    = symbols or ["KRW-BTC", "KRW-ETH"]
         self.paper_mode = paper_mode
 
         # 서브 모듈
@@ -155,6 +156,10 @@ class AutoTrader:
         self.ws        = get_client(self.symbols, simulate=ws_simulate)
         
         # 가격 업데이트 모니터링
+        self.price_history = {s: deque(maxlen=200) for s in self.symbols}
+        self.surge_symbols = set()
+        self.scanner_interval = 60
+        self.last_scan_time = 0
         self.last_price_update = {sym: time.time() for sym in self.symbols}
         self.last_ws_tick_at = 0.0
         self.last_rest_fallback_at = 0.0
@@ -507,8 +512,7 @@ class AutoTrader:
                 self._log(f"🛑 BUY 차단 {symbol}: 시세 stale ({age:.1f}s > 15s)")
                 return False
 
-            cfg = RISK_CONFIG.get(self.current_strategy, RISK_CONFIG["MODERATE"])
-
+            # 자산 현황 조회
             try:
                 portfolio = self.upbit.get_portfolio()
                 krw_balance = float(portfolio.get("KRW", {}).get("balance", 0) or 0)
@@ -517,20 +521,28 @@ class AutoTrader:
                 krw_balance = 0
                 total_eval = 0
 
-            order_krw = max(krw_balance * cfg["position_pct"] * self.profile["risk_scale"], 0)
+            # 기본 주문금액 계산
+            cfg = RISK_CONFIG.get(self.current_strategy, RISK_CONFIG["MODERATE"])
+            order_krw = krw_balance * cfg["position_pct"] * self.profile["risk_scale"]
 
-            # 프로필별 최대 주문 비율 제한
+            # ALL_IN 전략 또는 고비중 전략 처리
             max_ratio = float(self.profile.get('max_order_ratio', 0.60))
             max_order = krw_balance * max_ratio
 
-            if self.profile_name == 'ALL_IN' and not self.paper_mode:
-                # ALL_IN은 신호 시 가용 KRW 대부분을 사용하되,
-                # 코인별 최대 투자금은 총자본의 1/3로 제한
-                symbol_cap_ratio = float(self.profile.get('max_symbol_cap_ratio', 1/3))
+            if self.profile_name == 'ALL_IN':
+                # ALL_IN은 Live/Paper 공통으로 슬롯 배분 로직 적용
+                symbol_cap_ratio = float(self.profile.get('max_symbol_cap_ratio', 1/5))
                 symbol_cap_krw = total_eval * symbol_cap_ratio if total_eval > 0 else max_order
-                order_krw = min(max_order, symbol_cap_krw)
+                
+                # 신호 신뢰도에 따른 가변 가중치 적용 (Confidence Scaling)
+                # min_conf(0.7) ~ 1.0 사이를 0.8 ~ 1.0 가중치로 매핑
+                min_c = float(self.profile.get('min_conf', 0.7))
+                curr_c = float(self.last_decisions.get(symbol, {}).get('confidence', min_c))
+                conf_weight = 0.8 + (0.2 * (curr_c - min_c) / (1.0 - min_c)) if (1.0 - min_c) > 0 else 1.0
+                
+                order_krw = min(max_order, symbol_cap_krw) * conf_weight
             else:
-                # 일반 프로필은 최소주문 + 버퍼를 강제
+                # 일반 프로필: 최소주문 + 버퍼 강제 (Live 전용)
                 if not self.paper_mode:
                     order_krw = max(order_krw, MIN_SAFE_ORDER_KRW)
                 order_krw = min(order_krw, max_order)
@@ -558,7 +570,7 @@ class AutoTrader:
                 pos = Position(symbol, price, volume, self._get_position_strategy())
                 self.positions[symbol] = pos
                 self._log(f"📝 [모의] BUY {symbol} {volume:.6f}개 @ {price:,.0f}원 "
-                          f"(총 {order_krw:,.0f}원) SL={pos.stop_loss:,.0f} TP={pos.take_profit:,.0f}")
+                          f"(총 {order_krw:,.0f}원) SL={pos.stop_loss:,.0f} TP={pos.take_profit:,.0f})")
                 self._record_trade("BUY", symbol, price, volume, order_krw, "paper")
                 return True
             else:
@@ -927,7 +939,18 @@ class AutoTrader:
         return 100 - (100 / (1 + rs))
 
     def scalp_entry_ok(self, prices, vol, change_rate):
-        """Freqtrade류 스캘핑 원칙(짧은 추세 + 과열회피 + 저변동성)을 단순화 적용."""
+        """강화된 스캘핑 진입 필터 v2.
+        
+        개선점:
+        - RSI 반전 확인: RSI가 하락→상승 전환 구간(35~58)만 허용
+        - 고점 추격 방지: 최근 20캔들 고점의 98% 미만일 때만 진입
+        - 모멘텀 확인: 최근 3캔들 중 2개 이상 양봉
+        - 마이크로 딥 진입 우선: 단기 저점에서 반등 시작 시 진입
+        """
+        # 데이터 충분 확인
+        if len(prices) < 30:
+            return False
+
         ma5 = self._sma(prices, 5)
         ma20 = self._sma(prices, 20)
         if ma5 is None or ma20 is None:
@@ -935,15 +958,33 @@ class AutoTrader:
         rsi = self._rsi(prices, 14)
         if rsi is None:
             return False
-        # 1) 단기 상승 추세
+
+        # 1) 단기 상승 추세 (MA5 > MA20)
         trend_ok = ma5 > ma20
-        # 2) 과열 매수 금지
-        rsi_ok = 48 <= rsi <= 72
-        # 3) 급등 캔들 추격 금지
+
+        # 2) RSI 반전 확인: RSI가 하락→상승 전환 구간만 허용
+        #    - 이전 RSI 대비 상승 중이어야 함 (하락 중 매수 방지)
+        #    - RSI 35~58 구간만 허용 (이미 과열된 58+ 구간 차단)
+        prev_rsi = self._rsi(prices[:-1], 14)
+        rsi_rising = prev_rsi is not None and rsi > prev_rsi
+        rsi_ok = 35 <= rsi <= 58 and rsi_rising
+
+        # 3) 급등 캔들 추격 금지 (기존 유지)
         spike_ok = abs(change_rate or 0) < 0.006
-        # 4) 변동성 과대 구간 회피 (초단타 슬리피지 방지)
+
+        # 4) 변동성 과대 구간 회피 (기존 유지)
         vol_ok = (vol or 0) < 0.03
-        return trend_ok and rsi_ok and spike_ok and vol_ok
+
+        # 5) 고점 추격 방지: 최근 20캔들 고점의 98% 미만
+        recent_high = max(prices[-20:])
+        not_chasing = prices[-1] < recent_high * 0.98
+
+        # 6) 모멘텀 확인: 최근 3캔들 중 2개 이상 양봉 (반등 시작)
+        recent_4 = prices[-4:]  # 4개로 3개 변화 계산
+        ups = sum(1 for i in range(1, len(recent_4)) if recent_4[i] > recent_4[i-1])
+        momentum_ok = ups >= 2
+
+        return trend_ok and rsi_ok and spike_ok and vol_ok and not_chasing and momentum_ok
 
     def expected_net_profit_krw(self, pos: Position, price: float) -> float:
         """수수료 포함 기대 순이익 (원화)"""
@@ -951,6 +992,21 @@ class AutoTrader:
         gross_sell = price * pos.volume
         total_fee = (gross_buy + gross_sell) * FEE_RATE
         return (gross_sell - gross_buy) - total_fee
+
+    def _all_in_sell_signal_gate(self, symbol: str, decision: dict, prices: list[float], min_conf: float) -> tuple[bool, str]:
+        """ALL_IN 모드에서 AI 매도 신호를 한 번 더 필터링.
+        - 가격이 계속 우상향이면 약한 SELL은 보류
+        - 강한 SELL(고신뢰)일 때만 즉시 통과
+        """
+        conf = float(decision.get("confidence", 0) or 0)
+        strong_conf = float(self.profile.get('all_in_sell_strong_conf', max(min_conf + 0.12, 0.82)))
+
+        # 최근 3틱 상승 추세면 '계속 오르는 중'으로 판단
+        rising = len(prices) >= 3 and prices[-1] > prices[-2] > prices[-3]
+        if rising and conf < strong_conf:
+            return (False, f"ALL_IN_SELL_HOLD_UPTREND(conf={conf:.2f}<{strong_conf:.2f})")
+
+        return (True, "ALL_IN_SELL_STRONG_OK")
 
     def should_sell(self, symbol: str, price: float, reason: str = "") -> tuple[bool, str]:
         """
@@ -980,34 +1036,25 @@ class AutoTrader:
         """ALL_IN 프로필 매도 조건"""
         hold_sec = (datetime.now() - pos.opened_at).total_seconds()
         pnl = pos.pnl(price)
-
+        
         # 시간 기반 자동 손절 (우선순위 최상위)
         auto_stop_time = float(self.profile.get('auto_stoploss_time_sec', 7200))
         auto_stop_threshold = float(self.profile.get('auto_stoploss_threshold_pct', -0.02))
         if hold_sec >= auto_stop_time and pnl <= auto_stop_threshold:
             exp_net = self.expected_net_profit_krw(pos, price)
             return (True, f"AUTO_TIME_STOPLOSS({int(hold_sec/60)}분보유,{pnl*100:.2f}%,{exp_net:.0f}원)")
-
+        
         # 최소 보유시간 체크
         min_hold = int(self.profile.get('ai_sell_min_hold_sec', 300))
         if hold_sec < min_hold:
             return (False, f"MIN_HOLD({int(hold_sec)}s < {min_hold}s)")
-
-        # 최소 수익률 조건 (기본 0.25%)
-        min_profit_pct = float(self.profile.get('all_in_min_profit_pct', 0.0025))
-        if pnl < min_profit_pct:
-            return (False, f"MIN_PROFIT_PCT({pnl*100:.2f}% < {min_profit_pct*100:.2f}%)")
-
-        # 수수료 포함 순이익 체크
+        
+        # 수수료 포함 순이익 체크 (1원이라도 수익이면 매도 가능)
         exp_net = self.expected_net_profit_krw(pos, price)
-        min_net = float(self.profile.get('min_net_profit_krw', 30) or 0)
-        if exp_net < min_net:
-            return (False, f"MIN_NET_PROFIT({exp_net:.1f}원 < {min_net:.1f}원)")
-
-        # 최소 수익률/순이익 충족 후에도 SELL 신호까지 홀드
-        if reason != "AI_SIGNAL":
-            return (False, f"WAIT_SELL_SIGNAL({reason})")
-
+        if exp_net <= 0:
+            return (False, f"NO_PROFIT({exp_net:.1f}원)")
+        
+        # 모든 조건 통과 (순이익 > 0 + AI_SIGNAL "SELL")
         return (True, f"ALL_IN_PROFIT({exp_net:.1f}원)")
     
     def _should_sell_scalp(self, pos: Position, price: float, reason: str) -> tuple[bool, str]:
@@ -1130,12 +1177,9 @@ class AutoTrader:
         self.last_price_update[symbol] = self.last_ws_tick_at
         self.write_health_snapshot()
 
-        # 투자방식 파일 반영 (대시보드 버튼 연동)
-        self.load_profile()
-        self.autotune_scalp_params()
-
         # 가격 히스토리 업데이트
-        prices = self.ws.get_price_history(symbol, 50)
+        self.price_history[symbol].append(price)
+        prices = list(self.price_history[symbol])
         if len(prices) < 20:
             return
 
@@ -1240,6 +1284,12 @@ class AutoTrader:
             if self.execute_buy(symbol, price):
                 self.buy_signal_streak[symbol] = 0
         elif decision["signal"] == "SELL" and pos is not None and decision["confidence"] >= min_conf:
+            # ALL_IN: 상승 추세에서는 강한 SELL 신호만 통과
+            if self.profile_name == 'ALL_IN':
+                ok_sell, gate_reason = self._all_in_sell_signal_gate(symbol, decision, prices, min_conf)
+                if not ok_sell:
+                    self._log(f"⏸️ SELL 보류 {symbol}: {gate_reason}")
+                    return
             # 매도 조건은 should_sell()에서 통합 처리
             self.buy_signal_streak[symbol] = 0
             self.execute_sell(symbol, price, "AI_SIGNAL")
@@ -1248,7 +1298,7 @@ class AutoTrader:
             self.buy_signal_streak[symbol] = 0
 
     # ── 로그 ────────────────────────────────────────────────
-    def _log(self, msg: str):
+    def _log(self, msg: str, level: str = "INFO"):
         ts = datetime.now().strftime("%H:%M:%S")
         print(f"  [{ts}] {msg}")
 
@@ -1364,6 +1414,46 @@ class AutoTrader:
         print(f"{'='*70}")
 
     # ── 메인 실행 ───────────────────────────────────────────
+    def _run_market_scanner(self):
+        """업비트 전수 조사하여 급등주 탐색"""
+        now = time.time()
+        if now - self.last_scan_time < self.scanner_interval:
+            return
+        
+        self.last_scan_time = now
+        try:
+            # 모든 마켓 정보조회
+            markets = self.upbit._get("/market/all", params={"isDetails": "false"})
+            all_symbols = [m["market"] for m in markets if m["market"].startswith("KRW-")]
+            
+            # 모든 원화 마켓 티커 조회 (한번에 100개씩 나눠서 조회하거나 한번에 시도)
+            all_tickers = []
+            for i in range(0, len(all_symbols), 100):
+                chunk = all_symbols[i:i+100]
+                all_tickers.extend(self.upbit.get_ticker(chunk))
+            
+            # 급등 기준: 24시간 변동률이 높거나 최근 거래대금이 터진 코인
+            surging = sorted(all_tickers, key=lambda x: x.get("signed_change_rate", 0), reverse=True)[:10]
+            
+            new_surges = []
+            for t in surging:
+                symbol = t["market"]
+                if symbol not in self.symbols and t["signed_change_rate"] > 0.03: # 3% 이상 급등
+                    new_surges.append(symbol)
+            
+            if new_surges:
+                self._log(f"🚀 급등주 감지: {', '.join(new_surges)}", "WARNING")
+                for s in new_surges:
+                    if s not in self.price_history:
+                        self.price_history[s] = deque(maxlen=200)
+                
+                self.surge_symbols.update(new_surges)
+                # WebSocket 구독 업데이트 (ws 내부에서도 초기화하지만 AutoTrader 객체 동기화 위해 중복 안전 장치)
+                self.ws.update_symbols(list(set(self.symbols) | self.surge_symbols))
+                
+        except Exception as e:
+            self._log(f"❌ Market Scanner 오류: {e}", "ERROR")
+
     def start(self, duration: int = 60):
         # 계좌 확인
         print("📋 계좌 상태 확인 중...")
@@ -1402,10 +1492,146 @@ class AutoTrader:
                     last_report = slot
                     self.print_status(elapsed)
 
-                # 미체결 주문 체크 (20초마다)
+                # ── 1. 헬스 스냅샷 기록 ──────────────────────
+                self.write_health_snapshot()
+
+                # ── 2. 프로필 및 자동 튜닝 로드 ──────────────
+                self.load_profile()
+                self.autotune_scalp_params()
+
+                # ── 3. 미체결 주문 체크 ──────────────────────
                 if time.time() - last_pending_check >= 20:
                     self._check_pending_orders()
                     last_pending_check = time.time()
+
+                # ── 4. 스캐너 주기적 실행 ──────────────────────
+                self._run_market_scanner()
+
+                # ── 5. 활성 심볼 루프 ────────────────────────
+                active_symbols = list(set(self.symbols) | self.surge_symbols)
+                for symbol in active_symbols:
+                    # 데이터 확인
+                    ticker = self.ws.latest_ticker.get(symbol)
+                    if not ticker:
+                        continue # 아직 티커 데이터가 없으면 스킵
+
+                    price = ticker.price
+                    
+                    # 가격 히스토리 업데이트 (_on_ticker에서 이미 처리되지만, 혹시 모를 누락 방지)
+                    if not self.price_history[symbol] or self.price_history[symbol][-1] != price:
+                        self.price_history[symbol].append(price)
+                    prices = list(self.price_history[symbol])
+                    if len(prices) < 20:
+                        continue
+
+                    # 변동성 계산 + 전략 결정
+                    vol = self.vol_calc.update(symbol, prices)
+                    strategy = self.vol_calc.suggest_strategy(vol)
+
+                    # 긴급 정지 (_on_ticker에서 이미 처리되지만, 혹시 모를 누락 방지)
+                    emergency = self.emergency.check(
+                        self.vol_calc.cache,
+                        abs(min(self.daily_pnl, 0)),
+                        max(0, -ticker.change_rate),
+                    )
+                    if emergency:
+                        self._log(f"🚨 긴급 정지: {self.emergency.reason}")
+                        for sym in list(self.positions.keys()):
+                            self.execute_sell(sym, self.get_current_price(sym, price), "EMERGENCY")
+                        continue
+
+                    # 포지션 감시 (손절/익절)
+                    self.monitor_positions({symbol: price})
+
+                    # SCALP 모드: 검증된 초단타 관리(빠른 익절+트레일+시간청산)
+                    if self.profile_name == 'SCALP' and symbol in self.positions:
+                        self.scalp_manage_position(symbol, price)
+
+                    # AI 신호 (시간 기반 샘플링 + 동일 신호 쿨다운)
+                    now_ts = time.time()
+                    signal_interval = float(self.profile.get('signal_interval_sec', 5) or 5)
+                    same_signal_cooldown = float(self.profile.get('same_signal_cooldown_sec', 20) or 20)
+
+                    last_eval = self.last_signal_eval_at.get(symbol, 0.0)
+                    if now_ts - last_eval < signal_interval:
+                        continue
+                    self.last_signal_eval_at[symbol] = now_ts
+
+                    decision = self.ai.decide(symbol, prices, vol,
+                                              volume_trend=self._calc_volume_trend(ticker),
+                                              strategy=strategy)
+
+                    min_conf = self.profile["min_conf"]
+                    required_confirms = int(self.profile.get('buy_confirmations', 1) or 1)
+                    pos = self.positions.get(symbol)
+                    streak_if_buy = self.buy_signal_streak.get(symbol, 0) + 1 if (
+                        decision.get("signal") == "BUY" and pos is None and decision.get("confidence", 0) >= min_conf
+                    ) else 0
+
+                    # 대시보드용: 트레이더가 실제로 본 최신 의사결정(지연/불일치 제거)
+                    self.last_decisions[symbol] = {
+                        "symbol": symbol,
+                        "signal": decision.get("signal", "HOLD"),
+                        "confidence": float(decision.get("confidence", 0) or 0),
+                        "votes": decision.get("votes", {}),
+                        "agents": decision.get("agents", []),
+                        "strategy": strategy,
+                        "profile": self.profile_name,
+                        "min_conf": float(min_conf),
+                        "required_confirms": required_confirms,
+                        "buy_streak": streak_if_buy,
+                        "updated_at": now_ts,
+                    }
+                    self.write_ai_status_snapshot()
+
+                    # 동일 심볼/신호/신뢰도(반올림)가 짧은 시간 내 반복되면 스킵
+                    signal_key = f"{symbol}:{decision['signal']}:{round(decision['confidence'], 2)}"
+                    last_same = self.last_signal_key_at.get(signal_key, 0.0)
+                    if now_ts - last_same < same_signal_cooldown:
+                        continue
+                    self.last_signal_key_at[signal_key] = now_ts
+
+                    self.signal_log.append(decision)
+
+                    # 신뢰도 높은 신호만 출력
+                    if decision["confidence"] >= min_conf:
+                        print(self.ai.format_decision(decision))
+
+                    # 거래 실행
+                    # 먼지 잔고(최소주문 미만)는 보유 포지션에서 제외해 신규 매수를 막지 않게 처리
+                    pos = self.positions.get(symbol)
+                    if pos and (pos.volume * price) < MIN_ORDER_KRW:
+                        self._log(f"🧹 먼지 포지션 제외 {symbol}: {(pos.volume * price):,.2f}원")
+                        self.positions.pop(symbol, None)
+                        pos = None
+
+                    required_confirms = int(self.profile.get('buy_confirmations', 1) or 1)
+                    if decision["signal"] == "BUY" and pos is None and decision["confidence"] >= min_conf:
+                        # 프로필별 연속 확인 진입(노이즈 완화)
+                        streak = self.buy_signal_streak.get(symbol, 0) + 1
+                        self.buy_signal_streak[symbol] = streak
+                        if streak < required_confirms:
+                            self._log(f"⏳ BUY 확인 대기 {symbol}: {streak}/{required_confirms}")
+                            continue
+
+                        if self.profile_name == 'SCALP' and not self.scalp_entry_ok(prices, vol, ticker.change_rate):
+                            continue
+
+                        if self.execute_buy(symbol, price):
+                            self.buy_signal_streak[symbol] = 0
+                    elif decision["signal"] == "SELL" and pos is not None and decision["confidence"] >= min_conf:
+                        # ALL_IN: 상승 추세에서는 강한 SELL 신호만 통과
+                        if self.profile_name == 'ALL_IN':
+                            ok_sell, gate_reason = self._all_in_sell_signal_gate(symbol, decision, prices, min_conf)
+                            if not ok_sell:
+                                self._log(f"⏸️ SELL 보류 {symbol}: {gate_reason}")
+                                continue
+                        # 매도 조건은 should_sell()에서 통합 처리
+                        self.buy_signal_streak[symbol] = 0
+                        self.execute_sell(symbol, price, "AI_SIGNAL")
+                    else:
+                        # BUY 연속 확인 리셋: 신호 약화/다른 신호/이미 보유 시
+                        self.buy_signal_streak[symbol] = 0
 
                 if time.time() - last_watchdog_ping >= 10:
                     self._systemd_notify("WATCHDOG=1")
@@ -1428,8 +1654,10 @@ if __name__ == "__main__":
     ws_sim = os.getenv("WS_SIMULATE")
     ws_simulate = None if ws_sim is None else ws_sim.lower() in ("1", "true", "yes", "on")
 
+    DEFAULT_SYMBOLS = ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-ADA", "KRW-DOGE", "KRW-DOT", "KRW-LINK", "KRW-POL", "KRW-AVAX"]
+
     trader = AutoTrader(
-        symbols=["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-ADA", "KRW-DOGE", "KRW-DOT", "KRW-LINK", "KRW-POL", "KRW-AVAX"],
+        symbols=DEFAULT_SYMBOLS,
         paper_mode=mode,
         ws_simulate=ws_simulate,
     )

@@ -33,90 +33,79 @@ HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>트레이더 마크 📊</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',sans-serif; }
-body { background:#0f172a; color:#e2e8f0; min-height:100vh; padding:20px; }
-h1 { text-align:center; font-size:2rem; color:#60a5fa; padding:20px 0; }
-.subtitle { text-align:center; color:#94a3b8; margin-bottom:12px; font-size:0.9rem; }
+* { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',Roboto,sans-serif; }
+body { background:#0a0f1e; color:#e2e8f0; min-height:100vh; padding:12px; }
+h1 { text-align:center; font-size:1.6rem; color:#60a5fa; padding:10px 0; }
+.subtitle { text-align:center; color:#94a3b8; margin-bottom:12px; font-size:0.85rem; }
 .health-row { display:flex; justify-content:center; margin-bottom:10px; }
-.health-badge { display:inline-flex; align-items:center; gap:6px; border:1px solid #334155; border-radius:999px; padding:6px 10px; font-size:0.8rem; color:#cbd5e1; background:#0f172a; cursor:pointer; }
-.health-dot { width:8px; height:8px; border-radius:50%; background:#64748b; }
+.health-badge { display:inline-flex; align-items:center; gap:6px; border:1px solid #334155; border-radius:999px; padding:4px 10px; font-size:0.75rem; color:#cbd5e1; background:#1e293b; cursor:pointer; }
+.health-dot { width:7px; height:7px; border-radius:50%; background:#64748b; }
 .health-badge.ok .health-dot { background:#22c55e; }
 .health-badge.warn .health-dot { background:#f59e0b; }
 .health-badge.bad .health-dot { background:#ef4444; }
-.health-detail { text-align:center; color:#94a3b8; font-size:0.78rem; margin:4px 0 10px; display:none; }
+.health-detail { text-align:center; color:#94a3b8; font-size:0.75rem; margin:4px 0 10px; display:none; }
 .health-detail.show { display:block; }
-.health-alert { display:none; margin:0 auto 12px; max-width:980px; border:1px solid #7f1d1d; background:#3f1111; color:#fecaca; border-radius:10px; padding:8px 12px; font-size:0.82rem; }
-.health-alert.show { display:block; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom:30px; }
-.card { background:#1e293b; border-radius:12px; padding:20px; border:1px solid #334155; }
-.card .label { color:#94a3b8; font-size:0.85rem; margin-bottom:8px; }
-.card .val { font-size:1.8rem; font-weight:700; }
-.card .sub { font-size:0.85rem; margin-top:4px; }
-.pos { color:#4ade80; }
-.neg { color:#f87171; }
-.table-wrap { background:#1e293b; border-radius:12px; padding:20px; border:1px solid #334155; overflow-x:auto; }
-.table-wrap h2 { color:#60a5fa; margin-bottom:16px; font-size:1.1rem; }
-table { width:100%; border-collapse:collapse; }
-th { text-align:left; padding:10px 12px; background:#0f172a; color:#94a3b8; font-size:0.85rem; }
-td { padding:10px 12px; border-bottom:1px solid #334155; font-size:0.9rem; }
-tr:hover td { background:rgba(96,165,250,0.05); }
-.badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.8rem; font-weight:600; white-space:nowrap; word-break:keep-all; }
-.badge.buy { background:rgba(74,222,128,0.15); color:#4ade80; }
-.badge.sell { background:rgba(248,113,113,0.15); color:#f87171; }
-.pnl-cell { white-space:nowrap; word-break:keep-all; }
-.footer { text-align:center; margin-top:24px; color:#475569; font-size:0.85rem; }
-.footer span { color:#60a5fa; font-weight:600; }
-.btn { background:#3b82f6; color:#fff; border:none; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:0.9rem; }
-.btn:hover { background:#2563eb; }
-#status { text-align:center; padding:6px; font-size:0.8rem; }
-.profile-switch { display:flex; gap:8px; align-items:center; justify-content:center; margin:8px 0 14px; flex-wrap:wrap; }
-.profile-label { color:#94a3b8; font-size:0.85rem; }
-.pgroup { display:flex; align-items:center; gap:4px; }
-.pbtn { border:1px solid #334155; background:#1e293b; color:#cbd5e1; padding:6px 10px; border-radius:8px; cursor:pointer; font-weight:600; }
+
+.main-tabs { display:flex; gap:4px; margin:0 auto 16px; max-width:980px; background:#1e293b; padding:4px; border-radius:12px; border:1px solid #334155; }
+.main-tab-btn { flex:1; border:none; background:transparent; color:#94a3b8; padding:8px; border-radius:8px; cursor:pointer; font-weight:600; font-size:0.85rem; transition:0.2s; }
+.main-tab-btn.active { background:#3b82f6; color:#fff; }
+
+.profile-bar { display:flex; gap:8px; align-items:center; justify-content:center; margin-bottom:16px; flex-wrap:wrap; font-size:0.8rem; }
+.pbtn { border:1px solid #334155; background:#1e293b; color:#cbd5e1; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600; font-size:0.75rem; }
 .pbtn.active { background:#16a34a; color:#fff; border-color:#16a34a; }
-.tip-wrap { position:relative; display:inline-flex; align-items:center; }
-.tip-icon { width:18px; height:18px; border-radius:50%; border:1px solid #475569; color:#cbd5e1; background:#0f172a; font-size:12px; line-height:16px; text-align:center; cursor:pointer; padding:0; }
-.tip-bubble { display:none; position:absolute; top:24px; right:0; min-width:220px; max-width:260px; background:#111827; color:#e5e7eb; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:12px; line-height:1.4; z-index:50; box-shadow:0 8px 20px rgba(0,0,0,.35); white-space:pre-line; }
-.tip-wrap:hover .tip-bubble, .tip-wrap:focus-within .tip-bubble { display:block; }
-.tabs { display:flex; gap:8px; margin-bottom:14px; }
-.tab-btn { flex:1; border:1px solid #334155; background:#1e293b; color:#cbd5e1; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:600; }
-.tab-btn.active { background:#1d4ed8; color:#fff; border-color:#1d4ed8; }
-.tab-panel { display:none; }
-.tab-panel.active { display:block; }
-.ab-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:16px; }
-.ab-card { background:#1e293b; border:1px solid #334155; border-radius:12px; padding:14px; }
-.ab-card h3 { font-size:0.95rem; color:#93c5fd; margin-bottom:8px; }
-.ab-card .big { font-size:1.35rem; font-weight:700; }
-.chart-container { background:#1e293b; border-radius:12px; padding:20px; border:1px solid #334155; margin-bottom:30px; }
-.chart-container h2 { color:#60a5fa; margin-bottom:16px; font-size:1.1rem; }
-.chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:20px; }
-.chart-box { height:200px; position:relative; }
-.chart-line { position:absolute; left:0; right:0; top:0; bottom:0; }
-.chart-label { position:absolute; bottom:-25px; left:0; right:0; text-align:center; font-size:0.85rem; color:#94a3b8; }
-.chart-entry { position:absolute; width:4px; background:#4ade80; top:0; bottom:0; }
-.chart-entry-label { position:absolute; top:-25px; left:50%; transform:translateX(-50%); background:#4ade80; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.8rem; white-space:nowrap; }
-.chart-sl { position:absolute; width:4px; background:#60a5fa; top:0; bottom:0; }
-.chart-sl-label { position:absolute; bottom:-25px; left:50%; transform:translateX(-50%); background:#60a5fa; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.8rem; white-space:nowrap; }
-.chart-tp { position:absolute; width:4px; background:#f87171; top:0; bottom:0; }
-.chart-tp-label { position:absolute; bottom:-25px; left:50%; transform:translateX(-50%); background:#f87171; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.8rem; white-space:nowrap; }
-.price-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:20px; }
-.price-card { background:#1e293b; border-radius:8px; padding:15px; border:1px solid #334155; }
-.price-card h3 { font-size:0.9rem; color:#94a3b8; margin-bottom:8px; }
-.price-card .price { font-size:1.5rem; font-weight:700; margin-bottom:4px; }
-.price-card .change { font-size:0.85rem; }
-.mobile-chart-container { display:none; background:#1e293b; border-radius:12px; padding:16px; border:1px solid #334155; margin-bottom:20px; }
-.mobile-chart-container h2 { color:#60a5fa; margin-bottom:12px; font-size:1rem; }
-.mpos-card { background:#0f172a; border:1px solid #334155; border-radius:10px; padding:12px; margin-bottom:10px; }
-.mpos-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:0.95rem; }
+
+.price-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-bottom:16px; }
+.price-card { background:#1e293b; border-radius:10px; padding:10px; border:1px solid #334155; text-align:center; }
+.price-card h3 { font-size:0.75rem; color:#94a3b8; margin-bottom:4px; }
+.price-card .price { font-size:1.1rem; font-weight:700; }
+.price-card .change { font-size:0.75rem; margin-top:2px; }
+
+.kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:20px; }
+.kpi-card { background:#1e293b; border-radius:12px; padding:14px; border:1px solid #334155; position:relative; }
+.kpi-card .label { color:#94a3b8; font-size:0.75rem; margin-bottom:4px; }
+.kpi-card .val { font-size:1.3rem; font-weight:700; }
+.kpi-card .sub { font-size:0.75rem; color:#64748b; margin-top:2px; }
+
+.section-title { font-size:1rem; color:#60a5fa; margin-bottom:10px; display:flex; align-items:center; gap:8px; font-weight:600; }
+
+.pos-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:10px; margin-bottom:24px; }
+.mpos-card { background:#1e293b; border:1px solid #334155; border-radius:12px; padding:12px; }
+.mpos-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:0.9rem; }
 .mpos-pnl { font-weight:700; }
-.mbar-track { position:relative; height:28px; border-radius:8px; background:#1e293b; border:1px solid #334155; margin:8px 0; }
+.mbar-track { position:relative; height:24px; border-radius:6px; background:#0f172a; border:1px solid #334155; margin:6px 0; overflow:hidden; }
 .m-marker { position:absolute; top:0; bottom:0; width:3px; }
 .m-marker.entry { background:#4ade80; }
 .m-marker.current { background:#fbbf24; }
-.m-marker.sl { background:#60a5fa; }
-.m-marker.tp { background:#f87171; }
-.mlegend { display:grid; grid-template-columns:1fr 1fr; gap:4px 8px; font-size:0.78rem; color:#cbd5e1; }
-.mlegend b { color:#e2e8f0; }
+.m-marker.sl { background:#60a5fa; width:2px; }
+.m-marker.tp { background:#f87171; width:2px; }
+.mlegend { display:grid; grid-template-columns:1fr 1fr; gap:2px 8px; font-size:0.72rem; color:#94a3b8; }
+
+.scroll-table-wrap { background:#1e293b; border-radius:12px; border:1px solid #334155; overflow:hidden; margin-bottom:20px; }
+.table-header { padding:12px 16px; background:#1e293b; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center; }
+.table-scroll { max-height:450px; overflow-y:auto; }
+table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+th { position:sticky; top:0; background:#0f172a; color:#94a3b8; padding:8px 12px; font-weight:600; text-align:left; z-index:10; }
+td { padding:8px 12px; border-bottom:1px solid #334155; }
+tr:last-child td { border-bottom:none; }
+
+.badge { padding:2px 8px; border-radius:6px; font-size:0.75rem; font-weight:600; white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; min-width:42px; }
+.badge.buy { background:rgba(34,197,94,0.15); color:#22c55e; }
+.badge.sell { background:rgba(239,68,68,0.15); color:#ef4444; }
+
+.ai-container { max-width:980px; margin:0 auto; }
+.agent-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:8px; margin-bottom:12px; }
+.agent-card { background:#0f172a; border:1px solid #334155; border-radius:8px; padding:10px; text-align:center; }
+.agent-card .aname { font-size:0.7rem; color:#64748b; margin-bottom:4px; }
+.agent-card .asignal { font-size:0.95rem; font-weight:700; }
+
+.btn-small { background:#334155; color:#cbd5e1; border:none; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:0.75rem; }
+.btn-small:hover { background:#475569; }
+
+@media (max-width: 640px) {
+  .price-grid { grid-template-columns:repeat(2,1fr); }
+  .kpi-grid { grid-template-columns:repeat(2,1fr); }
+  th:nth-child(5), td:nth-child(5), th:nth-child(6), td:nth-child(6), th:nth-child(8), td:nth-child(8) { display:none; }
+}
 
 @media (max-width: 768px) {
   body { padding:10px; }
@@ -179,7 +168,8 @@ tr:hover td { background:rgba(96,165,250,0.05); }
 </head>
 <body>
 <h1>트레이더 마크 📊</h1>
-<div class="subtitle">실시간 실투자 대시보드 &nbsp;|&nbsp; <span id="ts">로딩 중...</span></div>
+<div class="subtitle"><span id="ts">로딩 중...</span></div>
+
 <div class="health-row">
   <div id="healthBadge" class="health-badge" onclick="toggleHealthDetail()" title="클릭해서 상세 보기">
     <span class="health-dot"></span>
@@ -187,233 +177,174 @@ tr:hover td { background:rgba(96,165,250,0.05); }
   </div>
 </div>
 <div id="healthDetail" class="health-detail"></div>
-<div id="healthAlert" class="health-alert"></div>
 <div id="status"></div>
 
-<div class="profile-switch">
-  <span class="profile-label">투자방식:</span>
+<div class="main-tabs">
+  <button class="main-tab-btn active" id="tabMain" onclick="switchMainTab('main')">📈 대시보드</button>
+  <button class="main-tab-btn" id="tabLog" onclick="switchMainTab('log')">📋 분석 & 로그</button>
+</div>
 
-  <div class="pgroup">
+<!-- 메인 대시보드 탭 -->
+<div id="panelMain" class="tab-panel active">
+  <div class="profile-bar">
+    <span style="color:#94a3b8">투자방식:</span>
     <button class="pbtn" id="pSAFE" onclick="setProfile('SAFE')">SAFE</button>
-    <span class="tip-wrap">
-      <button class="tip-icon" aria-label="SAFE 설명">i</button>
-      <span class="tip-bubble">SAFE: 보수적 운용
-- 예상 리스크: 낮음
-- 거래 빈도: 낮음
-- 진입 신뢰도 기준: 높음</span>
-    </span>
-  </div>
-
-  <div class="pgroup">
     <button class="pbtn" id="pBALANCED" onclick="setProfile('BALANCED')">BALANCED</button>
-    <span class="tip-wrap">
-      <button class="tip-icon" aria-label="BALANCED 설명">i</button>
-      <span class="tip-bubble">BALANCED: 균형 운용
-- 예상 리스크: 중간
-- 거래 빈도: 중간
-- 기본 추천 모드</span>
-    </span>
-  </div>
-
-  <div class="pgroup">
     <button class="pbtn" id="pAGGRESSIVE" onclick="setProfile('AGGRESSIVE')">AGGRESSIVE</button>
-    <span class="tip-wrap">
-      <button class="tip-icon" aria-label="AGGRESSIVE 설명">i</button>
-      <span class="tip-bubble">AGGRESSIVE: 공격 운용
-- 예상 리스크: 높음
-- 거래 빈도: 높음
-- 진입 신뢰도 기준: 완화</span>
-    </span>
-  </div>
-
-  <div class="pgroup">
     <button class="pbtn" id="pSCALP" onclick="setProfile('SCALP')">SCALP</button>
-    <span class="tip-wrap">
-      <button class="tip-icon" aria-label="SCALP 설명">i</button>
-      <span class="tip-bubble">SCALP: 검증형 초단타 모드
-- 예상 리스크: 중간
-- 거래 빈도: 중간~높음
-- 진입: 단기추세(MA5>MA20) + RSI 과열회피 + 급등추격 금지
-- 청산: +0.30% 익절 / 트레일링 / 시간청산
-- 원칙: 왕복 수수료(0.10%) 제하고도 순이익일 때만 익절
-- 자동튜닝: 최근 SCALP 성과로 TP/트레일/시간값 미세조정</span>
-    </span>
-  </div>
-
-  <div class="pgroup">
     <button class="pbtn" id="pALL_IN" onclick="setProfile('ALL_IN')">ALL_IN</button>
-    <span class="tip-wrap">
-      <button class="tip-icon" aria-label="ALL_IN 설명">i</button>
-      <span class="tip-bubble">ALL_IN: 총 자금 가용 모드
-- 예상 리스크: 매우 높음
-- 거래 빈도: 신호 의존
-- 신호 발생 시 KRW 잔고의 최대 98%까지 진입
-- 단, 코인당 최대 투자금은 총자본의 1/3로 제한</span>
-    </span>
+    <span id="profileNow" style="font-weight:700;color:#60a5fa;margin-left:4px;">-</span>
   </div>
 
-  <span class="profile-label" id="profileNow">현재: -</span>
-</div>
-
-<div style="display:flex;gap:8px;align-items:center;justify-content:center;margin:0 0 14px;flex-wrap:wrap;">
-  <label for="allInMinNet" class="profile-label">ALL_IN 최소 순이익(원):</label>
-  <input id="allInMinNet" type="number" min="0" step="1" value="30" style="width:110px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:6px 8px;" disabled>
-  <button class="btn" id="saveAllInMinNet" onclick="saveAllInMinNet()" disabled>적용</button>
-</div>
-
-<!-- AI 봇 상태 패널 -->
-<div class="ai-panel" id="aiPanel">
-  <h2>🤖 AI 봇 상태 <button class="toggle-btn" onclick="toggleAiPanel()">접기/펼치기</button></h2>
-  <div id="aiPanelBody">
-    <div id="aiSignals">로딩 중...</div>
-    <div id="aiAgents"></div>
-    <h2 style="margin-top:14px;">⚙️ 현재 프로필 설정</h2>
-    <div class="profile-detail" id="profileDetail"></div>
+  <div class="section-title" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+    <span>⚙️ 프로필 상세 설정</span>
+    <button class="btn-small" onclick="toggleProfileDetail()" id="profileToggleBtn">상세 접기</button>
   </div>
-</div>
-
-<div class="tabs">
-  <button class="tab-btn active" id="tabBtnA" onclick="switchTab('a')">💰 실투자 대시보드</button>
-</div>
-
-<div id="panelA" class="tab-panel active">
-<!-- 3개 코인 현재가 -->
-<div class="price-grid" id="priceGrid"></div>
-
-<!-- KPI 카드 -->
-<div class="grid">
-  <div class="card">
-    <div class="label">💰 현재 자본</div>
-    <div class="val" id="capital">-</div>
-    <div class="sub" id="capitalSub">-</div>
+  <div id="profileTopBody">
+    <div class="profile-detail" id="profileDetailTop"></div>
   </div>
-  <div class="card">
-    <div class="label">📈 누적 수익률</div>
-    <div class="val" id="ret">-</div>
-    <div class="sub" id="retSub">-</div>
+
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+    <span>💹 실시간 가격</span>
+    <button class="btn-small" onclick="togglePriceScope()" id="priceScopeBtn">보유만 보기</button>
   </div>
-  <div class="card">
-    <div class="label">📊 총 거래 횟수</div>
-    <div class="val" id="trades">-</div>
-    <div class="sub">오늘: <span id="todayT">-</span>회</div>
-  </div>
-  <div class="card">
-    <div class="label">🎯 승률</div>
-    <div class="val" id="wr">-</div>
-    <div class="sub">수익 거래: <span id="wins">-</span>회</div>
-  </div>
-  <div class="card">
-    <div class="label">💸 총 수수료</div>
-    <div class="val" id="fee">-</div>
-    <div class="sub">거래당 평균: <span id="avgFee">-</span>원</div>
-  </div>
-</div>
+  <div class="price-grid" id="priceGrid"></div>
 
-<!-- 차트: 매수 지점 표시 -->
-<div class="chart-container">
-  <h2>📊 포지션 차트 (진입가 vs 현재가)</h2>
-  <div class="chart-grid" id="chartGrid"></div>
-</div>
-
-<!-- 모바일용 포지션 그래프 -->
-<div class="mobile-chart-container">
-  <h2>📱 모바일 포지션 그래프</h2>
-  <div id="mobilePosList"></div>
-</div>
-
-<!-- 거래 내역 -->
-<div class="table-wrap">
-  <h2>📋 최근 거래 내역 (최근 20건)
-    <button class="btn" onclick="load()" style="float:right;font-size:0.8rem;padding:6px 14px;">새로고침</button>
-  </h2>
-  <table>
-    <thead>
-      <tr><th>일시</th><th>종목</th><th>매매</th><th>가격</th><th>수량</th><th>금액(원)</th><th>손익</th><th>사유</th></tr>
-    </thead>
-    <tbody id="tbody"></tbody>
-  </table>
-</div>
-</div>
-
-<div id="panelB" class="tab-panel">
-  <div class="price-grid" id="bPriceGrid"></div>
-
-  <div class="grid">
-    <div class="card">
-      <div class="label">💰 B 현재 자본</div>
-      <div class="val" id="bCapital">-</div>
-      <div class="sub" id="bCapitalSub">-</div>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="label">💰 현재 자본</div>
+      <div class="val" id="capital">-</div>
+      <div class="sub" id="capitalSub">-</div>
     </div>
-    <div class="card">
-      <div class="label">📈 B 누적 수익률</div>
-      <div class="val" id="bRet">-</div>
-      <div class="sub" id="bRetSub">-</div>
+    <div class="kpi-card">
+      <div class="label">📈 누적 수익률</div>
+      <div class="val" id="ret">-</div>
+      <div class="sub" id="retSub">-</div>
     </div>
-    <div class="card">
-      <div class="label">📊 B 총 거래</div>
-      <div class="val" id="bTrades">-</div>
-      <div class="sub">청산: <span id="bSells">-</span>회</div>
-    </div>
-    <div class="card">
-      <div class="label">🎯 B 승률</div>
-      <div class="val" id="bWr">-</div>
-      <div class="sub">오픈 포지션: <span id="bOpen">-</span>개</div>
+    <div class="kpi-card">
+      <div class="label">🎯 승률 (오늘)</div>
+      <div class="val" id="wr">-</div>
+      <div class="sub"><span id="wins">-</span>승 / <span id="todayT">-</span>회</div>
     </div>
   </div>
 
-  <div class="table-wrap">
-    <h2>📋 B 최근 거래 내역 (최근 20건)</h2>
-    <table>
-      <thead>
-        <tr><th>시간</th><th>종목</th><th>매매</th><th>가격</th><th>손익</th><th>사유</th></tr>
-      </thead>
-      <tbody id="bTbody"></tbody>
-    </table>
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+    <span>📊 현재 보유 포지션</span>
+    <button class="btn-small" onclick="toggleEmptyPositions()" id="emptyPosBtn">빈 포지션 보기</button>
   </div>
+  <div class="pos-list" id="mobilePosList"></div>
 </div>
 
-<div id="panelAB" class="tab-panel">
-  <div class="ab-grid">
-    <div class="ab-card">
-      <h3>A 전략 (검증형)</h3>
-      <div class="big" id="aCap">-</div>
-      <div id="aMeta" class="sub">-</div>
+<!-- 상세 분석 & 로그 탭 -->
+<div id="panelLog" class="tab-panel">
+  <div class="ai-container">
+    <div class="section-title" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <span>🤖 AI 분석 전문가</span>
+      <button class="btn-small" onclick="toggleAiScope()" id="aiScopeBtn">전체 보기</button>
+      <button class="btn-small" onclick="toggleAiPanel()" id="aiToggleBtn">상세 접기</button>
     </div>
-    <div class="ab-card">
-      <h3>B 전략 (다수결 실험형)</h3>
-      <div class="big" id="bCap">-</div>
-      <div id="bMeta" class="sub">-</div>
-    </div>
-    <div class="ab-card">
-      <h3>수익률 비교</h3>
-      <div class="big" id="abRet">-</div>
-      <div id="abDiff" class="sub">-</div>
+    <!-- 요약 신호는 항상 표시 -->
+    <div id="aiSignals"></div>
+    <!-- 상세 정보(에이전트)는 접기 대상 -->
+    <div id="aiPanelBody">
+      <div id="aiAgents"></div>
     </div>
   </div>
 
-  <div class="table-wrap">
-    <h2>📌 A/B 비교 요약</h2>
-    <table>
-      <thead>
-        <tr><th>항목</th><th>A(검증형)</th><th>B(실험형)</th></tr>
-      </thead>
-      <tbody id="abTbody"></tbody>
-    </table>
+  <div class="scroll-table-wrap" style="margin-top:24px;">
+    <div class="table-header">
+      <div class="section-title" style="margin-bottom:0">📋 거래 히스토리 <span id="historyLabel" style="font-size:0.8rem;color:#94a3b8;">(최근 20건)</span></div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn-small" onclick="toggleHistoryLimit()" id="historyLimitBtn">더보기</button>
+        <button class="btn-small" onclick="load()">새로고침</button>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>일시</th><th>종목</th><th>매매</th><th>가격</th><th>수량</th><th>금액</th><th>손익</th><th>사유</th></tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 <div class="footer">
-  자동 새로고침: <span>10초</span> | 로컬: <span>localhost:8080</span> | 네트워크: <span id="neturl">-</span>
+  <span>AntiGravity v2.0</span> | 10초 자동 갱신 | <span id="neturl">-</span>
 </div>
 
 <script>
 let timer = null;
 let healthDetailOpen = false;
+let aiPanelOpen = true;
+let showAllPrices = false;
+let showEmptyPositions = false;
+let historyLimit = 20;
+let showAllAiSymbols = false;
+let lastPortfolio = null;
+let profileDetailOpen = true;
 
 function toggleHealthDetail() {
   healthDetailOpen = !healthDetailOpen;
   const el = document.getElementById('healthDetail');
   if (el) el.classList.toggle('show', healthDetailOpen);
+}
+
+function toggleAiPanel() {
+  aiPanelOpen = !aiPanelOpen;
+  const body = document.getElementById('aiPanelBody');
+  const btn = document.getElementById('aiToggleBtn');
+  if (body) body.style.display = aiPanelOpen ? 'block' : 'none';
+  if (btn) btn.textContent = aiPanelOpen ? '상세 접기' : '상세 펼치기';
+}
+
+function toggleProfileDetail() {
+  profileDetailOpen = !profileDetailOpen;
+  const body = document.getElementById('profileTopBody');
+  const btn = document.getElementById('profileToggleBtn');
+  if (body) body.style.display = profileDetailOpen ? 'block' : 'none';
+  if (btn) btn.textContent = profileDetailOpen ? '상세 접기' : '상세 펼치기';
+}
+
+function togglePriceScope() {
+  showAllPrices = !showAllPrices;
+  const btn = document.getElementById('priceScopeBtn');
+  if (btn) btn.textContent = showAllPrices ? '보유만 보기' : '전체 보기';
+  load();
+}
+
+function toggleEmptyPositions() {
+  showEmptyPositions = !showEmptyPositions;
+  const btn = document.getElementById('emptyPosBtn');
+  if (btn) btn.textContent = showEmptyPositions ? '빈 포지션 숨기기' : '빈 포지션 보기';
+  load();
+}
+
+function toggleHistoryLimit() {
+  historyLimit = historyLimit === 20 ? 100 : 20;
+  const label = document.getElementById('historyLabel');
+  const btn = document.getElementById('historyLimitBtn');
+  if (label) label.textContent = historyLimit === 20 ? '(최근 20건)' : '(최근 100건)';
+  if (btn) btn.textContent = historyLimit === 20 ? '더보기' : '접기';
+  load();
+}
+
+function toggleAiScope() {
+  showAllAiSymbols = !showAllAiSymbols;
+  const btn = document.getElementById('aiScopeBtn');
+  if (btn) btn.textContent = showAllAiSymbols ? '보유만 보기' : '전체 보기';
+  loadAiStatus();
+}
+
+function switchMainTab(tab) {
+  const isMain = tab === 'main';
+  document.getElementById('panelMain').classList.toggle('active', isMain);
+  document.getElementById('panelLog').classList.toggle('active', !isMain);
+  document.getElementById('tabMain').classList.toggle('active', isMain);
+  document.getElementById('tabLog').classList.toggle('active', !isMain);
+  
+  if (!isMain) { load(); } // 로드 시점 최적화
 }
 
 async function loadProfile() {
@@ -427,16 +358,7 @@ async function loadProfile() {
       if (el) el.classList.toggle('active', x === p);
     });
     const now = document.getElementById('profileNow');
-    if (now) now.textContent = '현재: ' + p;
-
-    const isAllIn = p === 'ALL_IN';
-    const input = document.getElementById('allInMinNet');
-    const btn = document.getElementById('saveAllInMinNet');
-    if (input) {
-      input.disabled = !isAllIn;
-      input.value = Math.round(Number(d.all_in_min_net_profit_krw ?? 30));
-    }
-    if (btn) btn.disabled = !isAllIn;
+    if (now) now.textContent = p;
   } catch(e) {}
 }
 
@@ -451,31 +373,8 @@ async function setProfile(profile) {
     if (!r.ok) throw new Error(d.error || 'profile update failed');
     await loadProfile();
   } catch(e) {
-    document.getElementById('status').textContent = '⚠️ 투자방식 전환 실패: ' + e.message;
+    alert('투자방식 전환 실패: ' + e.message);
   }
-}
-
-async function saveAllInMinNet() {
-  try {
-    const v = Math.max(0, parseInt(document.getElementById('allInMinNet').value || '0', 10));
-    const r = await fetch('/api/profile', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({all_in_min_net_profit_krw: v})
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'save failed');
-    document.getElementById('status').textContent = `✅ ALL_IN 최소 순이익 ${v}원 적용`;
-    await loadProfile();
-  } catch(e) {
-    document.getElementById('status').textContent = '⚠️ ALL_IN 필터 저장 실패: ' + e.message;
-  }
-}
-
-function switchTab(tab) {
-  const isA = tab === 'a';
-  document.getElementById('panelA').classList.toggle('active', isA);
-  document.getElementById('tabBtnA').classList.toggle('active', isA);
 }
 
 async function loadHealthz() {
@@ -489,14 +388,16 @@ async function loadHealthz() {
     const alert = document.getElementById('healthAlert');
     if (!badge || !text || !detail || !alert) return;
 
-    const tickAge = d?.ws?.tick_age_sec;
-    const fb = d?.ws?.fallback_1m;
-    const svc = d?.service?.trader_autotrader;
-    const st = d?.status || 'degraded';
-    const connected = d?.ws?.connected;
-    const reasons = Array.isArray(d?.reasons) ? d.reasons : [];
-    const lastRestartTs = d?.service?.last_restart_ts;
-    const lastRestartReason = d?.service?.last_restart_reason;
+    const ws = (d && d.ws) ? d.ws : {};
+    const service = (d && d.service) ? d.service : {};
+    const tickAge = ws.tick_age_sec;
+    const fb = ws.fallback_1m;
+    const svc = service.trader_autotrader;
+    const st = (d && d.status) ? d.status : 'degraded';
+    const connected = ws.connected;
+    const reasons = (d && Array.isArray(d.reasons)) ? d.reasons : [];
+    const lastRestartTs = service.last_restart_ts;
+    const lastRestartReason = service.last_restart_reason;
 
     let restartTxt = '';
     if (typeof lastRestartTs === 'number' && lastRestartTs > 0) {
@@ -510,22 +411,30 @@ async function loadHealthz() {
 
     if (bad) {
       badge.classList.add('bad');
-      text.textContent = `🔴 WS 위험 · tick ${tickAge?.toFixed?.(1) ?? '-'}s · fb ${fb ?? '-'} · svc ${svc}${restartTxt}`;
+      const tickTxt = (typeof tickAge === 'number') ? tickAge.toFixed(1) : '-';
+      const fbTxt = (typeof fb === 'number') ? String(fb) : '-';
+      text.textContent = `🔴 WS 위험 · tick ${tickTxt}s · fb ${fbTxt} · svc ${svc || '-'}${restartTxt}`;
       alert.classList.add('show');
       alert.textContent = `⚠️ 실시간 시세/연결 이상 감지: ${reasons.join(', ') || '상세 원인 확인 필요'}`;
     } else if (warn) {
       badge.classList.add('warn');
-      text.textContent = `🟠 WS 주의 · tick ${tickAge?.toFixed?.(1) ?? '-'}s · fb ${fb ?? '-'} · svc ${svc}${restartTxt}`;
+      const tickTxt = (typeof tickAge === 'number') ? tickAge.toFixed(1) : '-';
+      const fbTxt = (typeof fb === 'number') ? String(fb) : '-';
+      text.textContent = `🟠 WS 주의 · tick ${tickTxt}s · fb ${fbTxt} · svc ${svc || '-'}${restartTxt}`;
       alert.classList.remove('show');
       alert.textContent = '';
     } else {
       badge.classList.add('ok');
-      text.textContent = `🟢 WS 정상 · tick ${tickAge?.toFixed?.(1) ?? '-'}s · fb ${fb ?? '-'} · svc ${svc}${restartTxt}`;
+      const tickTxt = (typeof tickAge === 'number') ? tickAge.toFixed(1) : '-';
+      const fbTxt = (typeof fb === 'number') ? String(fb) : '-';
+      text.textContent = `🟢 WS 정상 · tick ${tickTxt}s · fb ${fbTxt} · svc ${svc || '-'}${restartTxt}`;
       alert.classList.remove('show');
       alert.textContent = '';
     }
 
-    detail.textContent = `연결:${connected} · tick_age:${tickAge?.toFixed?.(2) ?? '-'}s · fallback_1m:${fb ?? '-'} · service:${svc} · status:${st}${reasons.length ? ` · reasons:${reasons.join('|')}` : ''}`;
+    const tickDetail = (typeof tickAge === 'number') ? tickAge.toFixed(2) : '-';
+    const fbDetail = (typeof fb === 'number') ? String(fb) : '-';
+    detail.textContent = `연결:${connected} · tick_age:${tickDetail}s · fallback_1m:${fbDetail} · service:${svc || '-'} · status:${st}${reasons.length ? ` · reasons:${reasons.join('|')}` : ''}`;
     detail.classList.toggle('show', healthDetailOpen);
 
   } catch (e) {
@@ -549,6 +458,7 @@ async function load() {
     const r = await fetch('/api/portfolio?t=' + Date.now());
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
+    lastPortfolio = d;
     render(d);
     loadProfile();
     loadHealthz();
@@ -562,6 +472,11 @@ async function load() {
 
 function fmt(n) { return (n||0).toLocaleString('ko-KR'); }
 
+function toPct(val, min, max) {
+  if (max === min) return 50;
+  return Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100));
+}
+
 function render(d) {
   const capital = d.capital || 0;
   const init = d.initial_capital || capital || 1;
@@ -574,52 +489,64 @@ function render(d) {
   let fee = 0;
   tl.forEach(t => { fee += t.total_fee || (t.buy_fee||0) + (t.sell_fee||0); });
 
-  // KPI
-  document.getElementById('capital').textContent = fmt(capital) + '원';
-  document.getElementById('capitalSub').innerHTML = `초기 대비 <span class="${ret>=0?'pos':'neg'}">${ret>=0?'+':''}${ret}%</span>`;
-  document.getElementById('ret').textContent = ret + '%';
-  document.getElementById('ret').className = 'val ' + (ret>=0?'pos':'neg');
-  document.getElementById('retSub').textContent = ret>=0?'📈 상승 중':'📉 하락 중';
-  document.getElementById('trades').textContent = tl.length + '회';
-  document.getElementById('todayT').textContent = todayT;
-  document.getElementById('wr').textContent = wr + '%';
-  document.getElementById('wins').textContent = wins;
-  document.getElementById('fee').textContent = Math.round(fee).toLocaleString('ko-KR') + '원';
-  document.getElementById('avgFee').textContent = tl.length ? Math.round(fee/tl.length) : 0;
+  const setEl = (id, val, cls) => {
+    const el = document.getElementById(id);
+    if (el) {
+      if (val !== undefined) el.textContent = val;
+      if (cls !== undefined) el.className = cls;
+    }
+  };
 
-  // 타임스탬프
+  setEl('capital', fmt(capital) + '원');
+  const capSub = document.getElementById('capitalSub');
+  if (capSub) capSub.innerHTML = `초기 대비 <span class="${ret>=0?'pos':'neg'}">${ret>=0?'+':''}${ret}%</span>`;
+  
+  setEl('ret', ret + '%', 'val ' + (ret>=0?'pos':'neg'));
+  setEl('retSub', ret>=0?'📈 상승 중':'📉 하락 중');
+  setEl('trades', tl.length + '회');
+  setEl('todayT', todayT);
+  setEl('wr', wr + '%');
+  setEl('wins', wins);
+  setEl('fee', Math.round(fee).toLocaleString('ko-KR') + '원');
+  setEl('avgFee', tl.length ? Math.round(fee/tl.length) : 0);
+
   if (d.last_updated) {
     const dt = new Date(d.last_updated);
     const diff = Math.floor((Date.now() - dt) / 1000);
     const txt = diff < 60 ? diff+'초 전' : Math.floor(diff/60)+'분 전';
-    document.getElementById('ts').textContent = '업데이트: ' + txt;
+    setEl('ts', '업데이트: ' + txt);
   }
 
-  // 현재가 카드
   renderPriceCards(d);
-
-  // 차트
-  renderCharts(d);
   renderMobilePositions(d);
 
-  // 실투자 단일 탭
+  // 테이블 렌더링 (최근 N건)
+  // UPBIT_SYNC(동기화 보정용 로그)는 중복처럼 보이므로 UI에서 기본 제외
+  const tableSource = tl.filter(t => (t.reason || '') !== 'UPBIT_SYNC');
 
-  // 테이블
-  // 표는 봇 체결 중심으로 정리 (동기화 중복 행 숨김)
-  const visible = tl.filter(t => (t.reason || '') !== 'UPBIT_SYNC');
-  const recent = (visible.length ? visible : tl).slice(-20).reverse();
+  // 중복 체결(동일 시각/종목/방향/가격/수량) 제거
+  const deduped = [];
+  const seen = new Set();
+  tableSource.forEach(t => {
+    const key = [t.date||'', t.symbol||'', t.side||'', t.price||0, t.volume||0].join('|');
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(t);
+    }
+  });
+
+  const recent = deduped.slice(-historyLimit).reverse();
   let html = '';
   recent.forEach(t => {
     const dt = new Date(t.date||Date.now());
     const datePart = [dt.getFullYear(), String(dt.getMonth()+1).padStart(2,'0'), String(dt.getDate()).padStart(2,'0')].join('-');
-    const timePart = [dt.getHours(),dt.getMinutes(),dt.getSeconds()]
-      .map(x=>String(x).padStart(2,'0')).join(':');
+    const timePart = [dt.getHours(),dt.getMinutes(),dt.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
     const dateTime = `${datePart} ${timePart}`;
     const profit = t.profit||0;
     const cls = profit>=0?'pos':'neg';
     const ptxt = (profit>=0?'+':'')+profit.toFixed(1);
     const side = t.side==='BUY'?'buy':'sell';
-    const sideLabel = t.side==='BUY'?'🟢 매수':'🔴 매도';
+    const sideLabel = t.side==='BUY'?'매수':'매도';
     const amount = (t.value || ((t.price||0) * (t.volume||0)) || 0);
     html += `<tr>
       <td>${dateTime}</td>
@@ -632,23 +559,38 @@ function render(d) {
       <td>${t.reason||'AI'}</td>
     </tr>`;
   });
-  document.getElementById('tbody').innerHTML = html || '<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8;">거래 내역 없음</td></tr>';
+  const tbody = document.getElementById('tbody');
+  if (tbody) tbody.innerHTML = html || '<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8;">거래 내역 없음</td></tr>';
 }
 
 function renderPriceCards(d) {
-  const symbols = ['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA', 'KRW-DOGE', 'KRW-DOT', 'KRW-LINK', 'KRW-POL', 'KRW-AVAX'];
+  const positions = d.positions || {};
+  const currentPrices = d.current_prices || {};
+  const heldSymbols = Object.keys(positions || {});
+  let symbols = Object.keys(currentPrices || {});
+
+  // 기본: 보유 종목만 표시, 필요할 때 전체 표시
+  if (!showAllPrices) {
+    symbols = heldSymbols;
+  }
+
+  // 전체 보기여도 너무 길어지지 않게 상한 제한
+  if (showAllPrices && symbols.length > 24) {
+    symbols = symbols.slice(0, 24);
+  }
+
   let html = '';
-  
+
   symbols.forEach(sym => {
-    const pos = d.positions?.[sym];
-    const entry = pos?.entry || 0;
-    const vol = pos?.volume || 0;
+    const pos = positions[sym];
+    const entry = (pos && pos.entry) || 0;
+    const vol = (pos && pos.volume) || 0;
     const invested = entry && vol ? entry * vol : 0;
-    const current = d.current_prices?.[sym] || 0;
+    const current = currentPrices[sym] || 0;
     const change = entry ? ((current - entry) / entry * 100).toFixed(2) : 0;
     const changeClass = change >= 0 ? 'pos' : 'neg';
     const changeSign = change >= 0 ? '+' : '';
-    
+
     html += `
     <div class="price-card">
       <h3>${sym}</h3>
@@ -660,8 +602,13 @@ function renderPriceCards(d) {
       </div>
     </div>`;
   });
-  
-  document.getElementById('priceGrid').innerHTML = html;
+
+  if (!html) {
+    html = '<div style="color:#94a3b8;padding:10px;">보유 포지션이 없습니다. 필요하면 "전체 보기"를 눌러 시세를 확인하세요.</div>';
+  }
+
+  const el = document.getElementById('priceGrid');
+  if (el) el.innerHTML = html;
 }
 
 function renderCharts(d) {
@@ -719,7 +666,7 @@ function renderCharts(d) {
   });
   
   // 포지션 없는 코인들
-  const allSymbols = ['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA', 'KRW-DOGE', 'KRW-DOT', 'KRW-LINK', 'KRW-POL', 'KRW-AVAX'];
+  const allSymbols = Object.keys(currentPrices);
   allSymbols.forEach(sym => {
     if (!positions[sym]) {
       const current = currentPrices[sym] || 0;
@@ -737,21 +684,28 @@ function renderCharts(d) {
     }
   });
   
-  document.getElementById('chartGrid').innerHTML = html || '<div style="text-align:center;padding:40px;color:#94a3b8;">포지션 없음</div>';
+  const el = document.getElementById('chartGrid');
+  if (el) el.innerHTML = html || '<div style="text-align:center;padding:40px;color:#94a3b8;">포지션 없음</div>';
 }
 
 function renderMobilePositions(d) {
   const positions = d.positions || {};
   const currentPrices = d.current_prices || {};
-  const symbols = ['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA', 'KRW-DOGE', 'KRW-DOT', 'KRW-LINK', 'KRW-POL', 'KRW-AVAX'];
+  let allSymbols = Array.from(new Set([...Object.keys(currentPrices), ...Object.keys(positions)]));
+
+  // 기본: 실제 보유 포지션만 표시
+  if (!showEmptyPositions) {
+    allSymbols = Object.keys(positions);
+  }
+
+  // 표시 개수 제한(가독성)
+  if (allSymbols.length > 40) {
+    allSymbols = allSymbols.slice(0, 40);
+  }
+
   let html = '';
 
-  const toPct = (val, min, max) => {
-    if (max - min <= 0) return 50;
-    return Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
-  };
-
-  symbols.forEach(symbol => {
+  allSymbols.forEach(symbol => {
     const pos = positions[symbol];
     const current = currentPrices[symbol] || 0;
 
@@ -800,108 +754,15 @@ function renderMobilePositions(d) {
     </div>`;
   });
 
-  document.getElementById('mobilePosList').innerHTML = html;
+  if (!html) {
+    html = '<div style="color:#94a3b8;padding:10px;">현재 보유 포지션이 없습니다.</div>';
+  }
+
+  const el = document.getElementById('mobilePosList');
+  if (el) el.innerHTML = html;
 }
 
-function renderB(d) {
-  const b = d.ab_test || {};
-  const currentPrices = d.current_prices || {};
-  const symbols = ['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA', 'KRW-DOGE', 'KRW-DOT', 'KRW-LINK', 'KRW-POL', 'KRW-AVAX'];
-  const init = b.initial_capital || 1000000;
-  const bCapital = b.capital || init;
-  const bRet = ((bCapital / init - 1) * 100);
-  const bTrades = b.trades || 0;
-  const bSells = b.sell_trades || 0;
-  const bWr = b.win_rate || 0;
-  const bPositions = b.positions || {};
-  const bTradeLog = b.trade_log || [];
-
-  document.getElementById('bCapital').textContent = fmt(bCapital) + '원';
-  document.getElementById('bCapitalSub').innerHTML = `초기 대비 <span class="${bRet>=0?'pos':'neg'}">${bRet>=0?'+':''}${bRet.toFixed(2)}%</span>`;
-  document.getElementById('bRet').textContent = `${bRet.toFixed(2)}%`;
-  document.getElementById('bRet').className = 'val ' + (bRet>=0?'pos':'neg');
-  document.getElementById('bRetSub').textContent = bRet>=0?'📈 상승 중':'📉 하락 중';
-  document.getElementById('bTrades').textContent = `${bTrades}회`;
-  document.getElementById('bSells').textContent = `${bSells}`;
-  document.getElementById('bWr').textContent = `${bWr.toFixed(1)}%`;
-  document.getElementById('bOpen').textContent = Object.keys(bPositions).length;
-
-  // B 현재가 카드
-  let phtml = '';
-  symbols.forEach(sym => {
-    const pos = bPositions[sym];
-    const entry = pos?.entry || 0;
-    const cur = currentPrices[sym] || 0;
-    const chg = entry ? ((cur - entry) / entry * 100) : 0;
-    phtml += `
-    <div class="price-card">
-      <h3>${sym}</h3>
-      <div class="price">${fmt(cur)}원</div>
-      <div class="change ${chg>=0?'pos':'neg'}">${entry ? `진입가: ${fmt(entry)}원<br>${chg>=0?'+':''}${chg.toFixed(2)}%` : '포지션 없음'}</div>
-    </div>`;
-  });
-  document.getElementById('bPriceGrid').innerHTML = phtml;
-
-  // B 거래 테이블
-  const recent = bTradeLog.slice(-20).reverse();
-  let html = '';
-  recent.forEach(t => {
-    const dt = new Date(t.date || Date.now());
-    const time = [dt.getHours(),dt.getMinutes(),dt.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
-    const side = t.side === 'BUY' ? 'buy' : 'sell';
-    const sideLabel = t.side === 'BUY' ? '🟢 매수' : '🔴 매도';
-    const profit = Number(t.profit || 0);
-    html += `<tr>
-      <td>${time}</td>
-      <td><b>${t.symbol||''}</b></td>
-      <td><span class="badge ${side}">${sideLabel}</span></td>
-      <td>${fmt(t.price)}원</td>
-      <td class="${profit>=0?'pos':'neg'} pnl-cell">${profit?((profit>=0?'+':'')+profit.toFixed(1)+'원'):'-'}</td>
-      <td>${t.reason||''}</td>
-    </tr>`;
-  });
-  document.getElementById('bTbody').innerHTML = html || '<tr><td colspan="6" style="text-align:center;padding:30px;color:#94a3b8;">B 거래 내역 없음</td></tr>';
-}
-
-function renderAB(d) {
-  const aCapital = d.capital || 0;
-  const aInit = 1000000;
-  const aTrades = (d.trade_log || []).length;
-  const aSells = (d.trade_log || []).filter(t => t.side === 'SELL');
-  const aWins = aSells.filter(t => (t.profit || 0) > 0).length;
-  const aWinRate = aSells.length ? (aWins / aSells.length * 100) : 0;
-  const aRet = (aCapital / aInit - 1) * 100;
-
-  const b = d.ab_test || {};
-  const bCapital = b.capital || aInit;
-  const bTrades = b.trades || 0;
-  const bSells = b.sell_trades || 0;
-  const bWinRate = b.win_rate || 0;
-  const bRet = b.return_pct || 0;
-
-  document.getElementById('aCap').textContent = fmt(aCapital) + '원';
-  document.getElementById('aMeta').innerHTML = `수익률 <span class="${aRet>=0?'pos':'neg'}">${aRet>=0?'+':''}${aRet.toFixed(2)}%</span> · 거래 ${aTrades}회`;
-
-  document.getElementById('bCap').textContent = fmt(bCapital) + '원';
-  document.getElementById('bMeta').innerHTML = `수익률 <span class="${bRet>=0?'pos':'neg'}">${bRet>=0?'+':''}${bRet.toFixed(2)}%</span> · 거래 ${bTrades}회`;
-
-  const diff = (aRet - bRet);
-  document.getElementById('abRet').innerHTML = `<span class="${diff>=0?'pos':'neg'}">A ${diff>=0?'+':''}${diff.toFixed(2)}%p</span>`;
-  document.getElementById('abDiff').textContent = diff >= 0 ? 'A 전략 우세' : 'B 전략 우세';
-
-  const rows = [
-    ['현재 자본', fmt(aCapital)+'원', fmt(bCapital)+'원'],
-    ['누적 수익률', `${aRet>=0?'+':''}${aRet.toFixed(2)}%`, `${bRet>=0?'+':''}${bRet.toFixed(2)}%`],
-    ['총 거래', `${aTrades}회`, `${bTrades}회`],
-    ['청산 거래', `${aSells.length}회`, `${bSells}회`],
-    ['승률', `${aWinRate.toFixed(1)}%`, `${bWinRate.toFixed(1)}%`],
-    ['오픈 포지션', `${Object.keys(d.positions||{}).length}개`, `${Object.keys((b.positions)||{}).length}개`],
-  ];
-
-  document.getElementById('abTbody').innerHTML = rows.map(r =>
-    `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`
-  ).join('');
-}
+// B/AB 렌더링 함수 제거됨
 
 // 네트워크 IP 표시
 fetch('/api/info').then(r=>r.json()).then(d=>{
@@ -909,12 +770,7 @@ fetch('/api/info').then(r=>r.json()).then(d=>{
 }).catch(()=>{});
 
 // AI 봇 상태
-let aiPanelOpen = true;
-function toggleAiPanel() {
-  aiPanelOpen = !aiPanelOpen;
-  const body = document.getElementById('aiPanelBody');
-  if (body) body.style.display = aiPanelOpen ? 'block' : 'none';
-}
+// (중복 선언 제거: aiPanelOpen/toggleAiPanel은 상단에서 정의됨)
 
 async function loadAiStatus() {
   try {
@@ -927,7 +783,21 @@ async function loadAiStatus() {
 }
 
 function renderAiSignals(d) {
-  const symbols = d.symbols || [];
+  let symbols = d.symbols || [];
+  const held = new Set(Object.keys((lastPortfolio && lastPortfolio.positions) ? lastPortfolio.positions : {}));
+
+  // 기준 명확화:
+  // - 보유만 보기: 현재 보유 종목만 표시(없으면 0개)
+  // - 전체 보기: 전체 AI 심볼 표시(상한 30개)
+  if (!showAllAiSymbols) {
+    symbols = symbols.filter(s => held.has(s.symbol));
+  }
+
+  // 전체 보기여도 과도한 길이 방지
+  if (showAllAiSymbols && symbols.length > 30) {
+    symbols = symbols.slice(0, 30);
+  }
+
   let sigHtml = '';
   let agentHtml = '';
 
@@ -960,22 +830,23 @@ function renderAiSignals(d) {
     }
   });
 
-  const noData = '<div style="color:#94a3b8;text-align:center;padding:14px;">시세 데이터 수집 중... (트레이더 실행 후 표시됩니다)</div>';
+  const noData = showAllAiSymbols
+    ? '<div style="color:#94a3b8;text-align:center;padding:14px;">표시할 AI 신호가 없습니다.</div>'
+    : '<div style="color:#94a3b8;text-align:center;padding:14px;">현재 보유 종목이 없어 표시할 항목이 없습니다. 필요하면 "전체 보기"를 누르세요.</div>';
   document.getElementById('aiSignals').innerHTML = sigHtml || noData;
   document.getElementById('aiAgents').innerHTML = agentHtml;
 }
 
 function renderProfileDetail(cfg) {
   if (!cfg) return;
-  const el = document.getElementById('profileDetail');
-  if (!el) return;
+  const targets = [document.getElementById('profileDetailTop'), document.getElementById('profileDetail')].filter(Boolean);
+  if (!targets.length) return;
 
   const items = [
     {label:'프로필', val: cfg.name || '-', cls:'ok'},
     {label:'최소 신뢰도', val: ((cfg.min_conf||0)*100).toFixed(0) + '%', cls: cfg.min_conf >= 0.70 ? 'warn' : 'ok'},
     {label:'리스크 스케일', val: (cfg.risk_scale||1).toFixed(1) + 'x', cls: cfg.risk_scale > 1.2 ? 'danger' : cfg.risk_scale < 0.8 ? 'ok' : ''},
     {label:'최대 주문 비율', val: ((cfg.max_order_ratio||0)*100).toFixed(0) + '%'},
-    {label:'최소 순이익', val: fmt(cfg.min_net_profit_krw||0) + '원', cls: cfg.min_net_profit_krw > 100 ? 'warn' : 'ok'},
     {label:'AI 매도 최소 보유', val: Math.round((cfg.ai_sell_min_hold_sec||0)/60) + '분'},
     {label:'자동 손절 시간', val: Math.round((cfg.auto_stoploss_time_sec||0)/60) + '분'},
     {label:'자동 손절 임계', val: ((cfg.auto_stoploss_threshold_pct||0)*100).toFixed(1) + '%', cls:'danger'},
@@ -991,9 +862,10 @@ function renderProfileDetail(cfg) {
     items.push({label:'SCALP 시간청산', val: (cfg.scalp_time_exit_min||0) + '분'});
   }
 
-  el.innerHTML = items.map(i =>
+  const html = items.map(i =>
     `<div class="pd-item"><div class="pd-label">${i.label}</div><div class="pd-val ${i.cls||''}">${i.val}</div></div>`
   ).join('');
+  targets.forEach(el => el.innerHTML = html);
 }
 
 // 초기 로드 + 자동 새로고침
@@ -1031,10 +903,16 @@ class Handler(BaseHTTPRequestHandler):
             self.serve_healthz()
         elif path == '/api/info':
             self.send_json({'network_url': f'http://{get_ip()}:{PORT}'})
-        elif path == '/api/ai_status':
+        elif path == '/api/ai-status' or path == '/api/ai_status':
             self.serve_ai_status()
         elif path == '/api/profile':
             self.serve_profile()
+        elif path == '/api/trade-log' or path == '/api/trade_log':
+            self.serve_trade_log()
+        elif path == '/api/ws-health' or path == '/api/ws_health':
+            self.serve_ws_health()
+        elif path == '/api/positions':
+            self.serve_positions()
         else:
             self.respond(404, 'text/plain', b'Not Found')
 
@@ -1137,7 +1015,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({'error': 'Upbit API 사용 불가'}, 500)
                 return
 
-            symbols = ['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA', 'KRW-DOGE', 'KRW-DOT', 'KRW-LINK', 'KRW-POL', 'KRW-AVAX']
+            # 기본 심볼 + 현재 보유 포지션 심볼 합침
+            base_symbols = ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-ADA", "KRW-DOGE", "KRW-DOT", "KRW-LINK", "KRW-POL", "KRW-AVAX"]
+            
+            # ai_status_live.json에서 실시간 심볼 로드 시도
+            try:
+                if AI_STATUS_FILE.exists():
+                    live_raw = json.loads(AI_STATUS_FILE.read_text(encoding='utf-8'))
+                    live_symbols = list((live_raw.get('symbols') or {}).keys())
+                    if live_symbols:
+                        base_symbols = list(set(base_symbols + live_symbols))
+            except:
+                pass
+
+            symbols = base_symbols
             current_prices = {s: 0 for s in symbols}
 
             # 현재가
@@ -1442,8 +1333,9 @@ class Handler(BaseHTTPRequestHandler):
                     symbols_obj = live_raw.get('symbols') or {}
                     if isinstance(symbols_obj, dict) and symbols_obj:
                         symbols_data = []
-                        for sym in ['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA', 'KRW-DOGE', 'KRW-DOT', 'KRW-LINK', 'KRW-POL', 'KRW-AVAX']:
-                            row = symbols_obj.get(sym) or {'symbol': sym, 'signal': 'NO_DATA', 'confidence': 0, 'votes': {}, 'agents': []}
+                        all_status_syms = sorted(symbols_obj.keys())
+                        for sym in all_status_syms:
+                            row = symbols_obj.get(sym)
                             symbols_data.append({
                                 'symbol': sym,
                                 'signal': row.get('signal', 'HOLD'),
@@ -1471,7 +1363,7 @@ class Handler(BaseHTTPRequestHandler):
             # 2순위 fallback: 대시보드에서 직접 계산
             symbols_data = []
             engine = AISignalEngine()
-            symbols = ['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA', 'KRW-DOGE', 'KRW-DOT', 'KRW-LINK', 'KRW-POL', 'KRW-AVAX']
+            symbols = ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-ADA", "KRW-DOGE", "KRW-DOT", "KRW-LINK", "KRW-POL", "KRW-AVAX"]
 
             for sym in symbols:
                 try:
@@ -1523,6 +1415,69 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
         self.send_json({'profile': profile, 'all_in_min_net_profit_krw': all_in_min})
+
+    def serve_trade_log(self):
+        """트레이딩 로그 제공"""
+        try:
+            if LIVE_TRADE_LOG_FILE.exists():
+                data = json.loads(LIVE_TRADE_LOG_FILE.read_text(encoding='utf-8'))
+                # 최근 100개만 반환
+                if isinstance(data, list):
+                    data = data[-100:]
+                self.send_json({'trade_log': data})
+            else:
+                self.send_json({'trade_log': []})
+        except Exception as e:
+            self.send_json({'error': str(e), 'trade_log': []})
+
+    def serve_ws_health(self):
+        """WebSocket 건강 상태 제공"""
+        try:
+            if WS_HEALTH_FILE.exists():
+                data = json.loads(WS_HEALTH_FILE.read_text(encoding='utf-8'))
+                self.send_json(data)
+            else:
+                self.send_json({
+                    'connected': False,
+                    'tick_age_sec': None,
+                    'fallback_1m': True,
+                    'last_update_sec': None
+                })
+        except Exception as e:
+            self.send_json({'error': str(e), 'connected': False})
+
+    def serve_positions(self):
+        """현재 포지션 정보 제공"""
+        try:
+            # Upbit에서 현재 포지션 조회
+            if UPBIT_AVAILABLE and upbit:
+                positions = upbit.get_positions()
+                # KRW 잔고 추가
+                krw_balance = upbit.get_krw_balance()
+                
+                result = {
+                    'positions': positions,
+                    'krw_balance': krw_balance,
+                    'total_value': sum(float(p.get('current_value', 0)) for p in positions) + krw_balance,
+                    'timestamp': time.time()
+                }
+                self.send_json(result)
+            else:
+                self.send_json({
+                    'positions': [],
+                    'krw_balance': 0,
+                    'total_value': 0,
+                    'timestamp': time.time(),
+                    'upbit_available': UPBIT_AVAILABLE
+                })
+        except Exception as e:
+            self.send_json({
+                'error': str(e),
+                'positions': [],
+                'krw_balance': 0,
+                'total_value': 0,
+                'timestamp': time.time()
+            })
 
     def update_profile(self):
         try:
