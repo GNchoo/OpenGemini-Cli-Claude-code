@@ -82,7 +82,7 @@ class PersistentGemini:
                 await asyncio.get_event_loop().run_in_executor(
                     None, lambda: self.child.expect([">", "Ready"], timeout=20)
                 )
-            except:
+            except (pexpect.TIMEOUT, pexpect.EOF):
                 pass
 
     async def query(self, text: str) -> str:
