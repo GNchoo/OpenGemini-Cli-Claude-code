@@ -56,9 +56,14 @@ class BaseAgentEngine:
 
     def _clean_ansi(self, text: str) -> str:
         if not text: return ""
-        # 1. Remove all ANSI escape sequences
-        ansi_escape = re.compile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]')
+        # 1. Remove all ANSI escape sequences (CSI and OSC)
+        # Handle CSI (\x1b[...), OSC (\x1b]...), and other control sequences
+        ansi_escape = re.compile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]|\x1B\].*?(\x1B\\|\x07)')
         text = ansi_escape.sub('', text)
+        
+        # Target specific artifacts like ]9;4;0;
+        text = re.sub(r'\]9;4;\d+;', '', text)
+        
         # 2. Remove non-printable characters except newline/tab
         text = "".join(ch for ch in text if ch == '\n' or ch == '\t' or ord(ch) >= 32)
         
@@ -238,72 +243,83 @@ class GeminiAgentEngine(BaseAgentEngine):
 
 class ClaudeAgentEngine(BaseAgentEngine):
     async def start(self):
-        # Already locked in caller (query or send_input)
-        if self.child and self.child.isalive():
-            self.child.terminate(force=True)
-        
+        """Simplied start for Claude one-shot mode."""
         if not os.path.exists(self.binary):
-            # We'll handle this in query() by returning an error
-            return
+             raise FileNotFoundError(f"Binary not found: {self.binary}")
+        if not os.path.exists(self.workdir):
+             os.makedirs(self.workdir, exist_ok=True)
+        print(f"[ClaudeAgentEngine] Ready for one-shot sessions at {self.workdir}")
 
-        env = os.environ.copy()
-        env["TERM"] = "xterm-256color"
-        # Claude Code usually handles sessions via CWD or explicit session-id
-        # --dangerously-skip-permissions is used to avoid interactive blockers in headless mode
-        cmd = f"{self.binary} --session-id {self.session_id} --dangerously-skip-permissions"
-        if self.model:
-            cmd += f" --model {self.model}"
-        
-        # Note: Claude Code permissions might need manual flags or interactive handling
-        self.child = pexpect.spawn(cmd, env=env, encoding='utf-8', timeout=120, cwd=self.workdir)
+    def _kill_session_processes(self):
+        """Forcefully kill any lingering Claude or related MCP processes."""
         try:
-            # Claude prompt is often more complex, handle 'trust this folder'
-            patterns = [">", "Claude", "trust this folder", "trust this directory"]
-            idx = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.child.expect(patterns, timeout=30)
-            )
-            print(f"[ClaudeAgentEngine] Process started, match index: {idx}")
-            
-            if idx >= 2: # Match trust prompt
-                print("[ClaudeAgentEngine] Trust prompt detected, sending '1'")
-                self.child.sendline("1")
-                # Wait for the actual prompt after trusting
-                await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: self.child.expect([">", "Claude"], timeout=30)
-                )
-        except Exception as e:
-            print(f"[ClaudeAgentEngine] Startup expect failed: {e}")
-            if self.child:
-                output_context = self.child.before or ""
-                self._last_startup_output = output_context
-                print(f"[ClaudeAgentEngine] Output before failure: {output_context}")
+            import subprocess
+            subprocess.run(["pkill", "-9", "-f", "claude"], stderr=subprocess.DEVNULL)
+            subprocess.run(["pkill", "-9", "-f", self.session_id], stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    def _get_session_file(self, actual_workdir: str) -> str:
+        """Determine the path to the session .jsonl file."""
+        safe_path = actual_workdir.replace("/", "-")
+        return os.path.expanduser(f"~/.claude/projects/{safe_path}/{self.session_id}.jsonl")
 
     async def query(self, text: str) -> str:
+        """One-shot query using --resume if session exists, else --session-id."""
         async with self.lock:
-            if not self.child or not self.child.isalive():
-                await self.start()
+            actual_workdir = self.workdir
+            if not actual_workdir.endswith("workspace"):
+                actual_workdir = os.path.join(self.workdir, "workspace")
+            os.makedirs(actual_workdir, exist_ok=True)
             
-            self.child.sendline(text)
-            return await self._wait_for_next_event()
-
-    async def _wait_for_next_event(self) -> str:
-        def check():
+            self._kill_session_processes()
+            await asyncio.sleep(0.5)
+            
+            env = os.environ.copy()
+            env["TERM"] = "xterm"
+            env["NO_COLOR"] = "1"
+            
+            session_file = self._get_session_file(actual_workdir)
+            use_resume = os.path.exists(session_file)
+            
+            args = [
+                self.binary, "-p", text,
+                "--dangerously-skip-permissions", "Bash,Edit,Read",
+                "--permission-mode", "bypassPermissions"
+            ]
+            
+            if use_resume:
+                args.extend(["--resume", self.session_id])
+                print(f"[ClaudeAgentEngine] Resuming session: {self.session_id}")
+            else:
+                args.extend(["--session-id", self.session_id])
+                print(f"[ClaudeAgentEngine] Starting new session: {self.session_id}")
+                
+            if self.model:
+                args.extend(["--model", self.model])
+                
+            import shlex
+            cmd = " ".join(shlex.quote(a) for a in args)
+            
             try:
-                # Claude patterns: ">", "[y/n]", "Run this command?"
-                idx = self.child.expect([">", r"\[y/n\]", r"allow", r"approve"], timeout=120)
-                output = self.child.before
-                self.is_waiting_for_approval = (idx > 0)
-                return output
-            except pexpect.TIMEOUT:
-                self.is_waiting_for_approval = False
-                return self.child.before + "\n[Timeout waiting for Claude]"
+                output, exitstatus = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: pexpect.run(cmd, env=env, encoding='utf-8', timeout=180, withexitstatus=True, cwd=actual_workdir)
+                )
+                
+                cleaned = self._clean_ansi(output or "").strip()
+                cleaned = re.sub(r".*bypass permissions on.*", "", cleaned).strip()
+                
+                if cleaned:
+                    return cleaned
+                
+                if exitstatus != 0:
+                    return f"❌ 클로드 실행 오류 (Exit {exitstatus}):\n{cleaned if cleaned else '출력 없음'}"
+                
+                return "⚠️ 답변을 가져오지 못했습니다. (빈 출력)"
+                
             except Exception as e:
-                self.is_waiting_for_approval = False
-                return f"Error: {str(e)}"
-
-        loop = asyncio.get_event_loop()
-        raw_out = await loop.run_in_executor(None, check)
-        return self._clean_ansi(raw_out or "").strip()
+                print(f"[ClaudeAgentEngine] Query failed: {e}")
+                return f"❌ 클로드 엔진 실행 오류: {e}"
 
     async def start_auth_oauth(self) -> str:
         """Starts claude auth login and returns the OAuth URL. Process stays alive."""
@@ -627,17 +643,51 @@ async def workspace_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         return
-    if not context.args:
-        await update.message.reply_text("사용법: `/model [model-name]`")
-        return
     
-    model = context.args[0]
     chat_id = update.effective_chat.id
     engine_type = context.user_data.get("engine", DEFAULT_ENGINE)
     engine = get_engine(chat_id, engine_type)
-    engine.model = model
-    await engine.start()
-    await update.message.reply_text(f"✅ 모델이 `{model}`(으)로 변경되었습니다.")
+    
+    if context.args:
+        model = context.args[0]
+        context.user_data["model"] = model
+        engine.model = model
+        await engine.start()
+        await update.message.reply_text(f"✅ 모델이 `{model}`(으)로 변경되었습니다.")
+        return
+
+    # Show buttons if no args (Claude prioritized)
+    if engine_type == "claude":
+        keyboard = [
+            [
+                InlineKeyboardButton("Sonnet 4.6", callback_data="set_model:claude-sonnet-4-6"),
+                InlineKeyboardButton("Opus 4.6", callback_data="set_model:claude-opus-4-6")
+            ],
+            [
+                InlineKeyboardButton("Haiku 4.5", callback_data="set_model:claude-haiku-4-5"),
+                InlineKeyboardButton("Default", callback_data="set_model:None")
+            ]
+        ]
+        msg = "🤖 *Claude 모델 선택*\n현재 설정: `{}`\n\n사용할 모델을 선택하세요:".format(engine.model or "Default")
+    else:
+        # Gemini models
+        keyboard = [
+            [
+                InlineKeyboardButton("Pro 3.1", callback_data="set_model:gemini-3.1-pro-preview"),
+                InlineKeyboardButton("Flash 3", callback_data="set_model:gemini-3-flash-preview")
+            ],
+            [
+                InlineKeyboardButton("Pro 2.5", callback_data="set_model:gemini-2.5-pro"),
+                InlineKeyboardButton("Flash 2.5", callback_data="set_model:gemini-2.5-flash")
+            ],
+            [
+                InlineKeyboardButton("Default", callback_data="set_model:None")
+            ]
+        ]
+        msg = "🤖 *Gemini 모델 선택*\n현재 설정: `{}`\n\n사용할 모델을 선택하세요:".format(engine.model or "Default")
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
 async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
@@ -683,16 +733,21 @@ async def auth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     keyboard = [
         [
-            InlineKeyboardButton("\ud83d\udd11 API Key \uc785\ub825", callback_data="auth_method:api_key"),
-            InlineKeyboardButton("\ud83c\udf10 OAuth \ub85c\uadf8\uc778", callback_data="auth_method:oauth"),
+            InlineKeyboardButton("🔑 API Key 입력", callback_data="auth_method:api_key"),
+            InlineKeyboardButton("🌐 OAuth 안내", callback_data="auth_method:oauth_guide"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        f"\ud83d\udd10 *{engine_type.upper()} \uc778\uc99d \uc124\uc815*\n\n\uc6d0\ud558\uc2dc\ub294 \uc778\uc99d \ubc29\uc2dd\uc744 \uc120\ud0dd\ud574\uc8fc\uc138\uc694:",
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
+    
+    engine_name = engine_type.upper()
+    msg = (
+        f"🔐 *{engine_name} 인증 설정*\n\n"
+        f"현재 {engine_name} 에이전트를 사용하기 위한 인증을 설정합니다.\n\n"
+        "봇에서 직접 사용하시려면 **API Key** 방식을 추천드립니다. "
+        "OAuth 방식은 브라우저 인증이 필요하므로 터미널에서 직접 진행하셔야 합니다."
     )
+    
+    await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
 async def command_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
@@ -719,20 +774,25 @@ async def command_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
+    print(f"[bot] Received message from user {user.id if user else 'Unknown'}")
     if not _authorized(update):
+        print(f"[bot] Unauthorized user: {user.id if user else 'Unknown'}")
         return
 
     text = (update.message.text or "").strip()
+    print(f"[bot] Message text: '{text[:20]}...'")
     if not text:
         return
 
     chat_id = update.effective_chat.id
     engine_type = context.user_data.get("engine", DEFAULT_ENGINE)
     model = context.user_data.get("model")
+    print(f"[bot] Using engine: {engine_type}, model: {model}")
     engine = get_engine(chat_id, engine_type, model)
 
     # Check for authentication states
     auth_state = context.user_data.get("auth_state")
+    print(f"[bot] Auth state: {auth_state}")
     if auth_state == "AWAITING_KEY":
         # Save API key to .env
         success = _update_env_key(engine_type, text)
@@ -943,6 +1003,22 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
+    # Handle Model Selection
+    if data.startswith("set_model:"):
+        model_name = data.split(":")[1]
+        model_val = None if model_name == "None" else model_name
+        context.user_data["model"] = model_val
+        chat_id = update.effective_chat.id
+        engine_type = context.user_data.get("engine", DEFAULT_ENGINE)
+        engine = get_engine(chat_id, engine_type)
+        engine.model = model_val
+        await engine.start()
+        await query.edit_message_text(
+            f"✅ 모델이 `{model_val or 'Default'}`(으)로 변경되었습니다.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     # Handle Auth Method Selection
     if data.startswith("auth_method:"):
         method = data.split(":")[1]
@@ -953,19 +1029,24 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if method == "api_key":
             context.user_data["auth_state"] = "AWAITING_KEY"
             await query.edit_message_text(f"🔑 {engine_type.upper()} API Key를 입력해주세요 (메시지로 직접 보내주세요):")
-        elif method == "oauth":
-            await query.edit_message_text("\ud83c\udf10 OAuth \uc778\uc99d\uc744 \uc2dc\uc791\ud569\ub2c8\ub2e4. \uc7a0\uc2dc\ub9cc \uae30\ub2e4\ub824\uc8fc\uc138\uc694...")
-            url = await engine.start_auth_oauth()
-            if url == "ALREADY_LOGGED_IN":
-                await query.message.reply_text("\u2705 \uc774\ubbf8 \ub85c\uadf8\uc778\ub418\uc5b4 \uc788\uc2b5\ub2c8\ub2e4!")
-            elif url.startswith("http"):
-                context.user_data["auth_state"] = "AWAITING_CODE"
-                await query.message.reply_text(
-                    f"\ud83d\udd17 \uc544\ub798 \uc8fc\uc18c\ub85c \uc811\uc18d\ud558\uc5ec \ub85c\uadf8\uc778\ud574\uc8fc\uc138\uc694:\n\n{url}\n\n\ub85c\uadf8\uc778 \uc644\ub8cc \ud6c4 \uc544\ubb34 \uba54\uc2dc\uc9c0\ub098 \ubcf4\ub0b4\uc8fc\uc138\uc694.",
-                    parse_mode=None
+        elif method == "oauth_guide":
+            if engine_type == "claude":
+                manual_msg = (
+                    "🌐 *Claude Code OAuth 인증 가이드*\n\n"
+                    "1. 서버 터미널에 접속합니다.\n"
+                    f"2. `claude auth login` 명령어를 실행합니다.\n"
+                    "3. 출력된 URL을 브라우저에서 열고 로그인을 완료합니다.\n"
+                    "4. 인증이 완료되면 봇에서 즉시 사용 가능합니다."
                 )
             else:
-                await query.message.reply_text(url, parse_mode=None)
+                manual_msg = (
+                    "🌐 *Gemini CLI OAuth 인증 가이드*\n\n"
+                    "1. 서버 터미널에 접속합니다.\n"
+                    f"2. `gemini` 명령어를 실행합니다.\n"
+                    "3. 초기 실행 시 요구하는 Google OAuth 인증을 브라우저에서 완료합니다.\n"
+                    "4. 설정이 완료되면 봇에서 즉시 사용 가능합니다."
+                )
+            await query.edit_message_text(manual_msg, parse_mode=ParseMode.MARKDOWN)
         return
 
     if not data.startswith("tool_approval:"):
@@ -999,13 +1080,13 @@ async def post_init(app: Application) -> None:
         BotCommand("monitor", "트레이더 상태 모니터링"),
         BotCommand("workspace", "작업 디렉토리 설정"),
         BotCommand("engine", "엔진 전환 (gemini/claude)"),
-        BotCommand("login", "엔진 로그인/인증"),
-        BotCommand("auth", "엔진 인증 설정"),
+        BotCommand("auth", "엔진 인증 설정 (API Key/OAuth)"),
         BotCommand("coding", "코딩 에이전트 모드 활성화"),
         BotCommand("mode", "승인 모드 설정"),
         BotCommand("status", "에이전트 상태"),
         BotCommand("new", "세션 초기화 (Reset)"),
         BotCommand("update", "바이너리 업데이트"),
+        BotCommand("model", "모델 전환 (Sonnet/Haiku/Opus/Pro/Flash)"),
     ]
     await app.bot.set_my_commands(commands)
     print("Telegram command menu updated with Monitor and Coding.")
@@ -1034,8 +1115,8 @@ def main() -> None:
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("monitor", monitor_cmd))
     app.add_handler(CommandHandler("engine", engine_cmd))
-    app.add_handler(CommandHandler("login", auth_cmd))
     app.add_handler(CommandHandler("auth", auth_cmd))
+    app.add_handler(CommandHandler("login", auth_cmd)) # Keep as alias
     app.add_handler(CommandHandler("mode", mode_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("new", restart_cmd))
@@ -1045,7 +1126,7 @@ def main() -> None:
     app.add_handler(CommandHandler("model", model_cmd))
     
     # Callback Query Handlers
-    app.add_handler(CallbackQueryHandler(approval_callback, pattern="^(tool_approval:|set_ws:|set_engine:|auth_method:)"))
+    app.add_handler(CallbackQueryHandler(approval_callback, pattern="^(tool_approval:|set_ws:|set_engine:|auth_method:|set_model:)"))
 
     # Message Handlers
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
@@ -1056,7 +1137,8 @@ def main() -> None:
         app.add_handler(CommandHandler(cmd, command_proxy))
 
     print("OpenGemini Agent bot polling...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Drop pending updates to clear any stuck queue
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
