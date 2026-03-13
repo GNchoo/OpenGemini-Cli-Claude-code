@@ -7,8 +7,10 @@ import fcntl
 import re
 import pexpect
 import uuid
+import json
+import time
 from urllib.parse import urlparse, parse_qs
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from dotenv import load_dotenv
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
@@ -42,7 +44,81 @@ ENGINE_RESPONSE_TIMEOUT_SEC = int(
 )
 SESSION_DIR = os.path.join(GEMINI_WORKDIR, ".sessions")
 LOCK_FILE = os.path.join(GEMINI_WORKDIR, ".bot.lock")
+SHARED_SESSION_DIR = os.path.expanduser("~/.opengemini/sessions")
 os.makedirs(SESSION_DIR, exist_ok=True)
+os.makedirs(SHARED_SESSION_DIR, exist_ok=True)
+
+class SharedSessionHistory:
+    """엔진 간 공유 대화 기록 관리 클래스"""
+    
+    def __init__(self, chat_id: int):
+        self.chat_id = chat_id
+        self.history_file = os.path.join(SHARED_SESSION_DIR, f"{chat_id}.jsonl")
+        self.max_history = 50  # 최대 저장 대화 수
+        
+    def add_message(self, role: str, content: str, engine: str = "unknown"):
+        """대화 기록 추가"""
+        entry = {
+            "timestamp": time.time(),
+            "role": role,  # "user" or "assistant"
+            "content": content,
+            "engine": engine
+        }
+        try:
+            with open(self.history_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            print(f"[SharedSessionHistory] Failed to save history: {e}")
+    
+    def get_recent_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """최근 대화 기록 조회"""
+        if not os.path.exists(self.history_file):
+            return []
+        
+        try:
+            with open(self.history_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            
+            # 최근 limit개만 반환
+            recent = []
+            for line in lines[-limit:]:
+                try:
+                    recent.append(json.loads(line.strip()))
+                except:
+                    continue
+            
+            return recent
+        except Exception as e:
+            print(f"[SharedSessionHistory] Failed to load history: {e}")
+            return []
+    
+    def get_formatted_history(self, limit: int = 5) -> str:
+        """프롬프트에 삽입할 형식의 대화 기록 반환"""
+        history = self.get_recent_history(limit)
+        if not history:
+            return ""
+        
+        formatted = []
+        for entry in history:
+            role = entry.get("role", "unknown")
+            content = entry.get("content", "")
+            engine = entry.get("engine", "unknown")
+            
+            if role == "user":
+                formatted.append(f"User: {content}")
+            elif role == "assistant":
+                formatted.append(f"Assistant ({engine}): {content}")
+        
+        return "\n".join(formatted) + "\n\n"
+    
+    def clear_history(self):
+        """대화 기록 초기화"""
+        try:
+            if os.path.exists(self.history_file):
+                os.remove(self.history_file)
+        except Exception as e:
+            print(f"[SharedSessionHistory] Failed to clear history: {e}")
+
 
 class BaseAgentEngine:
     def __init__(self, chat_id: int, binary: str, model: Optional[str] = None):
@@ -57,6 +133,8 @@ class BaseAgentEngine:
         self.is_waiting_for_approval = False
         self.last_prompt = ""
         self.auth_child: Optional[pexpect.spawn] = None # For ongoing login processes
+        self.shared_history = SharedSessionHistory(chat_id)
+        self.engine_name = "unknown"  # 하위 클래스에서 설정
 
     def _clean_ansi(self, text: str) -> str:
         if not text: return ""
@@ -136,6 +214,10 @@ class BaseAgentEngine:
             self.auth_child.terminate(force=True)
 
 class GeminiAgentEngine(BaseAgentEngine):
+    def __init__(self, chat_id: int, binary: str, model: Optional[str] = None):
+        super().__init__(chat_id, binary, model)
+        self.engine_name = "gemini"
+    
     async def start(self):
         # Headless mode doesn't need a persistent process per session
         # We just verify binary exists
@@ -144,6 +226,23 @@ class GeminiAgentEngine(BaseAgentEngine):
         print(f"[GeminiAgentEngine] Headless engine ready for {self.session_id}")
 
     async def query(self, text: str) -> str:
+        # 1. 사용자 메시지를 공유 기록에 저장
+        self.shared_history.add_message("user", text, self.engine_name)
+        
+        # 2. 이전 대화 기록 가져오기 (최근 3개)
+        history_context = self.shared_history.get_formatted_history(limit=3)
+        
+        # 3. 프롬프트에 이전 대화 포함
+        enhanced_prompt = ""
+        if history_context:
+            enhanced_prompt = f"""이전 대화 기록:
+{history_context}
+현재 질문: {text}
+
+위의 대화 기록을 참고하여 답변해주세요:"""
+        else:
+            enhanced_prompt = text
+        
         async with self.lock:
             # We run a fresh process per query using --resume latest
             env = os.environ.copy()
@@ -155,7 +254,7 @@ class GeminiAgentEngine(BaseAgentEngine):
             # Escape text for shell
             # Using -p for headless prompt and -r latest for persistence
             # --output-format json for cleaner parsing
-            args = [self.binary, "-p", text, "-r", "latest", "--approval-mode", self.approval_mode, "--output-format", "json"]
+            args = [self.binary, "-p", enhanced_prompt, "-r", "latest", "--approval-mode", self.approval_mode, "--output-format", "json"]
             if self.model:
                 args.extend(["-m", self.model])
             if GEMINI_SANDBOX:
@@ -164,7 +263,7 @@ class GeminiAgentEngine(BaseAgentEngine):
                 args.extend(["--include-directories", GEMINI_INCLUDE_DIRS])
             
             cmd = " ".join(shlex.quote(a) for a in args)
-            print(f"[GeminiAgentEngine] Running headless JSON: {cmd}")
+            print(f"[GeminiAgentEngine] Running headless JSON with shared history: {cmd}")
             
             try:
                 # Use pexpect.run for single-shot headless execution
@@ -246,6 +345,10 @@ class GeminiAgentEngine(BaseAgentEngine):
         return "ℹ️ Gemini CLI는 별도의 인증 코드 입력이 필요하지 않습니다."
 
 class ClaudeAgentEngine(BaseAgentEngine):
+    def __init__(self, chat_id: int, binary: str, model: Optional[str] = None):
+        super().__init__(chat_id, binary, model)
+        self.engine_name = "claude"
+    
     async def start(self):
         """Simplied start for Claude one-shot mode."""
         if not os.path.exists(self.binary):
@@ -270,6 +373,23 @@ class ClaudeAgentEngine(BaseAgentEngine):
 
     async def query(self, text: str) -> str:
         """One-shot query using --resume if session exists, else --session-id."""
+        # 1. 사용자 메시지를 공유 기록에 저장
+        self.shared_history.add_message("user", text, self.engine_name)
+        
+        # 2. 이전 대화 기록 가져오기 (최근 3개)
+        history_context = self.shared_history.get_formatted_history(limit=3)
+        
+        # 3. 프롬프트에 이전 대화 포함
+        enhanced_prompt = ""
+        if history_context:
+            enhanced_prompt = f"""이전 대화 기록:
+{history_context}
+현재 질문: {text}
+
+위의 대화 기록을 참고하여 답변해주세요:"""
+        else:
+            enhanced_prompt = text
+        
         async with self.lock:
             actual_workdir = self.workdir
             if not actual_workdir.endswith("workspace"):
@@ -704,7 +824,9 @@ async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     engine_type = context.user_data.get("engine", DEFAULT_ENGINE)
     engine = get_engine(chat_id, engine_type)
     await engine.start()
-    await update.message.reply_text("✅ 세션이 재시작되었습니다.")
+    # /new 시 공유 대화 기록도 함께 초기화
+    engine.shared_history.clear_history()
+    await update.message.reply_text("✅ 세션 및 공유 대화 기록이 초기화되었습니다.")
 
 async def update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
@@ -732,6 +854,18 @@ async def coding_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     await engine.query(f"System: {system_prompt}\n\n[Coding Agent Mode Activated]")
     await update.message.reply_text("💻 *Coding Agent 모드*가 활성화되었습니다.\n이제 프로젝트 분석 및 코드 작성이 가능합니다.", parse_mode=ParseMode.MARKDOWN)
+
+async def clear_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """공유 대화 기록 초기화"""
+    if not _authorized(update):
+        return
+    
+    chat_id = update.effective_chat.id
+    engine_type = context.user_data.get("engine", DEFAULT_ENGINE)
+    engine = get_engine(chat_id, engine_type)
+    
+    engine.shared_history.clear_history()
+    await update.message.reply_text("🧹 *공유 대화 기록이 초기화되었습니다.*\n이제 새로운 대화가 시작됩니다.", parse_mode=ParseMode.MARKDOWN)
 
 async def auth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
@@ -968,6 +1102,10 @@ async def _respond_with_engine_output(update: Update, engine: BaseAgentEngine, o
         reply_markup = InlineKeyboardMarkup(keyboard)
         output += "\n\n⚠️ *도구 실행 승인이 필요합니다.*"
 
+    # 1. Assistant 응답을 공유 기록에 저장
+    engine.shared_history.add_message("assistant", output, engine.engine_name)
+    
+    # 2. 사용자에게 응답 전송
     for ch in _chunk_text(output):
         await _send_safe_message(update, ch, reply_markup=reply_markup)
 
@@ -1092,7 +1230,8 @@ async def post_init(app: Application) -> None:
         BotCommand("coding", "코딩 에이전트 모드 활성화"),
         BotCommand("mode", "승인 모드 설정"),
         BotCommand("status", "에이전트 상태"),
-        BotCommand("new", "세션 초기화 (Reset)"),
+        BotCommand("new", "세션 및 공유 기록 초기화"),
+        BotCommand("clear", "공유 대화 기록만 초기화"),
         BotCommand("update", "바이너리 업데이트"),
         BotCommand("model", "모델 전환 (Sonnet/Haiku/Opus/Pro/Flash)"),
     ]
@@ -1128,6 +1267,7 @@ def main() -> None:
     app.add_handler(CommandHandler("mode", mode_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("new", restart_cmd))
+    app.add_handler(CommandHandler("clear", clear_history_cmd))
     app.add_handler(CommandHandler("workspace", workspace_cmd))
     app.add_handler(CommandHandler("coding", coding_cmd))
     app.add_handler(CommandHandler("update", update_cmd))

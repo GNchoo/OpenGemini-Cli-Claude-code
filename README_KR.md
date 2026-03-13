@@ -1,79 +1,193 @@
-# OpenGemini
+# 🤖 OpenGemini & Claude 텔레그램 봇 (초보자용 가이드)
 
-[English](README_EN.md) | [한국어](README_KR.md)
+[English Version (영어 버전)](README_EN.md)
 
-OpenGemini는 Gemini CLI와 SuperGemini를 텔레그램 봇으로 연동하여 텔레그램 상에서 끊김 없는 원격 대화형 코딩, 모델 관리, 고급 MCP(Model Context Protocol) 기술들을 곧바로 사용할 수 있게 해주는 프로젝트입니다.
+이 프로젝트는 내 스마트폰(텔레그램)에서 **Google Gemini**와 **Anthropic Claude**라는 강력한 AI 코딩 에이전트를 마음껏 부려먹을 수 있게 해주는 개인용 자동화 봇입니다. 
+코딩을 몰라도, 아래 단계만 천천히 따라 하시면 누구나 자신만의 AI 비서를 만들 수 있습니다!
 
-## 주요 기능
-- **대화형 코딩**: `pexpect`를 통해 로컬 `gemini` CLI 파이프라인과 연결하여 장시간 지속되는 원격 프롬프팅이 가능합니다.
-- **다중 모델 스위칭**: 대화 중간에 프로세스 중단 없이 `/model [모델명]` 명령어로 작동 중인 AI 모델을 즉각적으로 변경할 수 있습니다.
-- **안정적인 시스템 서비스화**: 백그라운드 데몬(`systemd`)으로 구동되어 24시간 내내 안정적인 동작을 보장합니다.
-- **자동 업데이트**: `/update` 명령어 한 번으로 시스템 내부의 Gemini CLI 패키지를 최신 버전으로 업데이트하고 봇을 자동 재시작합니다.
-- **MCP 통합 연동**: SuperGemini 설정과 Github MCP Server 등 고급 플러그인 연동을 완벽히 지원하여 터미널과 동일한 기술 수준을 모바일 환경에서도 누릴 수 있게 합니다.
+---
 
-## 요구 사항
-- Python 3.10 이상
-- npm을 통해 설치된 `gemini` CLI (`npm install -g gemini` 명령어 사용)
-- Telegram 봇 토큰 (BotFather를 통해 발급)
+## 📌 목차
 
-## 설치 방법
-1. `gemini` CLI를 전역으로 설치합니다:
-   ```bash
-   npm install -g gemini
-   ```
-2. 저장소 클론:
-   ```bash
-   git clone https://github.com/GNchoo/OpenGemini.git
-   cd OpenGemini
-   ```
-3. 가상 환경 생성 및 활성화:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-4. 의존성 패키지 설치:
-   ```bash
-   pip install -r requirements.txt
-   ```
+1. [사전 준비 (텔레그램 설정)](#1-사전-준비-텔레그램-설정)
+2. [초간단 1분 설치 (Mac, Linux, Windows WSL)](#2-초간단-1분-설치-자동-스크립트)
+3. [OS별 상세 설치 가이드 (수동)](#3-os별-상세-설치-가이드)
+   - [Windows 사용자](#windows-사용자)
+   - [Mac (Apple) 사용자](#mac-사용자)
+   - [Linux (Ubuntu) 사용자](#linux-사용자)
+4. [최초 인증 및 봇 실행하기](#4-최초-인증-및-봇-실행하기)
+5. [봇 명령어 및 사용법](#5-봇-명령어-및-사용법)
+6. [자주 묻는 질문 (FAQ)](#6-자주-묻는-질문-faq)
 
-## 환경 설정 구성하기
-발급받은 텔레그램 봇 토큰과 자신의 텔레그램 User ID(유저 아이디)를 `bot.py` 스크립트 상단에 작성하여 타인의 접속을 제한합니다:
-```python
-BOT_TOKEN = '여러분의_봇_토큰'
-ALLOWED_USER_ID = 여러분의_텔레그램_유저_아이디
-```
-봇을 처음 시작하기 전에 터미널에서 `gemini auth`를 실행하여 Gemini CLI 계정 연동을 먼저 완료해 주어야 합니다.
+---
 
-## 백그라운드 데몬으로 실행하기 (시스템 서비스화)
-서버를 종료해도 봇이 꺼지지 않고 백그라운드에서 상시 작동되도록 systemd를 설정합니다.
-1. `~/.config/systemd/user/tg-gemini.service` 파일을 만들고 아래 코드를 입력합니다 (본인 서버의 로컬 경로에 맞춰 수정 요망):
-```ini
-[Unit]
-Description=Telegram Gemini Agent Bot
-After=network.target
+## 1. 사전 준비 (텔레그램 설정)
 
-[Service]
-Type=simple
-ExecStart=/path/to/tg_gemini/venv/bin/python3 -u /path/to/tg_gemini/bot.py
-WorkingDirectory=/path/to/tg_gemini
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
+이 봇을 나 혼자만 안전하게 사용하기 위해, **'봇 토큰'**과 내 **'주민등록번호(User ID)'** 같은 정보 2가지가 필요합니다.
 
-[Install]
-WantedBy=default.target
-```
-2. 시스템 서비스 데몬을 활성화하고 봇을 시작합니다:
+### 🔑 1) 봇 토큰 (Bot Token) 발급받기
+1. 텔레그램 앱을 켭니다.
+2. 상단 돋보기(검색) 창에 **`@BotFather`** 라고 검색하고, 파란색 체크 표시(공식 마크)가 있는 계정으로 들어갑니다.
+3. 화면 하단의 **[시작]** 또는 **[Start]** 버튼을 누릅니다.
+4. 메시지 창에 `/newbot` 이라고 치고 전송합니다.
+5. 봇의 **이름**(예: `나만의 코딩비서`)을 입력하고 전송합니다.
+6. 봇의 **아이디**(무조건 `_bot`으로 끝나야 함, 예: `my_super_coding_bot`)를 입력하고 전송합니다.
+7. 축하한다는 메시지와 함께 긴 영어/숫자가 섞인 비밀번호를 줍니다. 
+   *(예: `1234567890:ABCdefGhIjKlMnOpQrStUvWxYz`)*
+   👉 **이 값을 꼭 복사해서 메모장에 적어두세요! (이것이 TELEGRAM_TOKEN 입니다)**
+
+### 🆔 2) 내 텔레그램 User ID 확인하기
+남들이 내 봇을 마음대로 쓰지 못하게 내 ID만 허락해 주는 과정입니다.
+1. 텔레그램 검색창에 **`@userinfobot`** 을 검색해서 들어갑니다.
+2. **[시작]** 버튼을 누릅니다.
+3. 화면에 `Id: 123456789` 처럼 **숫자로 된 ID**가 나옵니다.
+   👉 **이 숫자도 복사해서 메모장에 적어두세요! (이것이 ALLOWED_USER_ID 입니다)**
+
+---
+
+## 2. 초간단 1분 설치 (자동 스크립트)
+
+터미널이나 명령 프롬프트(명령어 창)를 켤 줄 아신다면, 아래 명령어 한 줄을 복사해서 붙여넣고 엔터를 치면 모든 설치가 자동으로 진행됩니다. 
+*(Windows 사용자는 먼저 아래 `3. OS별 상세 설치 가이드`의 WSL 설치를 끝낸 후 진행하세요.)*
+
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable tg-gemini.service
-systemctl --user start tg-gemini.service
+curl -fsSL https://raw.githubusercontent.com/GNchoo/OpenGemini-Cli-Claude-code/main/install.sh | bash
 ```
 
-## 사용 가능한 명령어
-- `/start` - Gemini CLI와 백그라운드 파이프라인 연결을 시작합니다.
-- `/model [모델명]` - 현재 대화를 이어갈 활성 LLM 모델을 변경합니다.
-- `/update` - 전역 환경의 `gemini` npm 패키지를 최신 버전 상태로 끌어올린 후 연결을 재시작합니다.
-- `/restart` - 기존 백그라운드 프로세스를 Kill 하고 완전히 새로운 터미널 인스턴스를 하나 띄워서 초기화해 줍니다.
-- `/help` - 사용할 수 있는 도움말과 명령어 목록들을 보여줍니다.
+**설치 도중 질문이 나오면:**
+1. `텔레그램 Bot Token:` 방금 메모해 둔 **봇 토큰**을 붙여넣고 엔터.
+2. `텔레그램 User ID:` 방금 메모해 둔 **숫자 ID**를 붙여넣고 엔터.
+
+완료되었다면 바로 **[4. 최초 인증 및 봇 실행하기](#4-최초-인증-및-봇-실행하기)** 로 넘어가시면 됩니다!
+
+---
+
+## 3. OS별 상세 설치 가이드
+
+만약 위 자동 설치가 실패하거나, 직접 하나하나 설치해보고 싶다면 아래 가이드를 따라 하세요.
+
+### Windows 사용자
+Windows에서는 바로 실행되지 않고, 컴퓨터 안에 '가짜 리눅스(WSL)'를 하나 만들어야 합니다. 전혀 어렵지 않습니다!
+
+**[1단계] 리눅스(WSL) 설치하기**
+1. 컴퓨터 화면 왼쪽 아래 **시작 버튼** 클릭 → `PowerShell` 이라고 검색합니다.
+2. `Windows PowerShell` 글자에 마우스 오른쪽 버튼 클릭 → **"관리자 권한으로 실행"**을 누릅니다.
+3. 까만 창이 뜨면 아래 글자를 복사해서 붙여넣고 엔터를 칩니다.
+   ```powershell
+   wsl --install
+   ```
+4. 설치가 다 끝났다고 나오면 **컴퓨터를 재부팅** 합니다.
+
+**[2단계] Ubuntu(리눅스) 켜기**
+1. 컴퓨터가 켜지면, 다시 시작 버튼을 누르고 `Ubuntu`를 검색해서 실행합니다.
+2. 처음 켜면 설치를 위해 몇 분 정도 기다리라고 합니다.
+3. `Enter new UNIX username:` 이 뜨면 본인이 쓸 **영어 이름**(예: `kim`)을 치고 엔터.
+4. `New password:` 가 뜨면 **비밀번호**를 설정합니다. (입력해도 화면에 아무것도 안 보이지만 입력되고 있는 것입니다. 안심하고 치세요.) 엔터를 치고 한 번 더 확인 입력합니다.
+5. 짠! 리눅스 창이 떴습니다. 이제 아래 명령어를 한 줄씩 치고 엔터를 누르세요.
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   sudo apt install -y git curl python3 python3-venv python3-pip
+   ```
+   (비밀번호를 물어보면 아까 설정한 비밀번호를 치면 됩니다.)
+
+**[3단계] 자동 설치 진행**
+이제 위 **[2. 초간단 1분 설치]**에 있는 명령어를 복사해서 붙여넣으세요!
+
+---
+
+### Mac 사용자
+Mac은 `Terminal(터미널)`이라는 앱을 이용합니다.
+1. 키보드에서 `Command(⌘) + Space`를 눌러 검색창을 띄우고 `Terminal`을 검색해서 실행합니다.
+2. 아래 명령어를 차례대로 한 줄씩 복사/붙여넣기 하고 엔터를 칩니다.
+   *(Homebrew라는 설치 도우미를 까는 과정입니다. 비밀번호를 물어볼 수 있습니다.)*
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+3. 설치가 다 끝나면 아래 명령어로 필수 프로그램(Git, Python, Node)을 설치합니다.
+   ```bash
+   brew install git python node
+   ```
+4. 이제 위 **[2. 초간단 1분 설치]**에 있는 명령어를 복사해서 붙여넣으세요!
+
+---
+
+### Linux (Ubuntu) 사용자
+1. 터미널을 열고 아래 명령어로 기본 프로그램을 설치합니다.
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   sudo apt install -y git curl nodejs npm python3 python3-venv python3-pip
+   ```
+2. 이제 위 **[2. 초간단 1분 설치]**에 있는 명령어를 복사해서 붙여넣으세요!
+
+---
+
+## 4. 최초 인증 및 봇 실행하기
+
+설치 스크립트가 무사히 끝났다면, 마지막으로 **AI(Gemini, Claude)에게 내 계정이라고 허락을 받아야(로그인)** 합니다.
+
+### 1) Gemini 로그인 (필수)
+터미널 창에 아래 명령어를 칩니다.
+```bash
+gemini auth
+```
+그러면 인터넷 브라우저 창이 하나 뜰 것입니다. (만약 안 뜨면 화면에 나온 `https://...` 로 시작하는 주소를 직접 복사해서 인터넷 창에 붙여넣으세요.)
+Google 계정으로 로그인하고 "허용"을 모두 눌러주면 완료입니다!
+
+### 2) Claude 로그인 (선택 - 클로드도 쓰고 싶을 때)
+터미널 창에 아래 명령어를 칩니다.
+```bash
+claude login
+```
+마찬가지로 브라우저가 열리며 로그인을 하라고 합니다. 완료 후 터미널 창으로 돌아오세요.
+
+### 3) 봇 실행하기!
+이제 드디어 봇을 켤 시간입니다. 프로젝트 폴더 안에서 아래 명령어를 치세요.
+```bash
+# 봇 켜기 (이 창을 끄면 봇도 꺼집니다)
+python bot.py
+```
+화면에 `OpenGemini Agent bot polling...` 이라는 글씨가 뜨면 성공입니다!
+이제 스마트폰으로 텔레그램을 열고, 아까 내가 만든 봇 이름으로 들어가 대화를 걸어보세요.
+
+> **💡 팁: 컴퓨터를 꺼도, 터미널 창을 닫아도 계속 봇이 돌아가게 하려면?**
+> 터미널 창에 `bash start_bot.sh` 라고 치면 백그라운드에서 조용히 계속 켜져 있습니다.
+
+---
+
+## 5. 봇 명령어 및 사용법
+
+텔레그램 봇 채팅방에 들어가서 아래 명령어들을 입력해 보세요. 
+(채팅창 왼쪽 아래 `/` 버튼을 눌러도 메뉴가 나옵니다.)
+
+| 명령어 | 이럴 때 쓰세요 |
+|---|---|
+| `/start` | 봇이 살아있는지 확인할 때. 인사말이 나옵니다. |
+| `/help` | 어떤 기능들이 있는지 다시 보고 싶을 때. |
+| `/engine` | 구글(Gemini)을 쓸지, 클로드(Claude)를 쓸지 바꿀 수 있는 버튼이 나옵니다. |
+| `/model` | 봇이 똑똑한 버전(Pro)을 쓸지 빠르고 싼 버전(Flash/Haiku)을 쓸지 고릅니다. |
+| `/workspace [폴더경로]` | 봇이 컴퓨터의 어느 폴더에서 작업할지 지정합니다. (예: `/workspace /home/my/docs`) |
+| `/coding` | 봇을 완벽한 '전문 프로그래머' 모드로 바꿉니다. 코드 작성 능력이 최고로 올라갑니다. |
+| `/new` | 이전 대화 내용을 싹 잊고 새로운 마음으로 대화를 시작합니다. |
+
+**대화 예시:**
+> **나:** "안녕! 내 workspace 폴더에 index.html 파일 하나 만들어줘. 배경은 검은색이고 가운데에 'Hello World'라고 적어줘." <br>
+> **봇:** (잠시 생각 후) "네, 파일을 생성했습니다!" (동시에 내 스마트폰 텔레그램에 완성된 html 파일을 바로 쏴줍니다!)
+
+---
+
+## 6. 자주 묻는 질문 (FAQ)
+
+**Q. 봇이 제 말을 씹고 대답을 안 해요!**
+1. 봇을 켰던 터미널 창에 에러가 나지 않았는지 확인해 보세요.
+2. `텔레그램 봇 토큰`과 `User ID`를 헷갈려 적었을 수 있습니다. 폴더 안에 있는 `.env` 파일을 열어서 숫자가 정확한지 다시 확인하세요.
+
+**Q. 파일을 어떻게 열어서 확인하죠? (`.env` 파일 수정법)**
+터미널에서 `nano .env` 라고 치면 메모장 같은 화면이 열립니다. 키보드 방향키로 움직여서 내용을 고친 후, **`Ctrl + X`** 누르고 **`Y`** 누르고 **`Enter`** 를 치면 저장하고 나올 수 있습니다.
+
+**Q. Gemini나 Claude는 무료인가요?**
+CLI 툴 자체는 무료로 제공되지만, 각 회사(구글, 앤스로픽)의 API 정책이나 계정 상태에 따라 한도가 제한되어 있을 수 있습니다. 무료 한도 내에서는 자유롭게 쓰실 수 있습니다.
+
+**Q. 봇을 영원히 켜두고 싶은데 (서버 재부팅 시 자동 실행)**
+라즈베리파이나 클라우드 서버(리눅스)를 쓰신다면 `systemd` 등록을 추천합니다.
+터미널에 `nano ~/.config/systemd/user/opengemini.service` 를 치고 아래 내용을 붙여넣은 뒤, 경로를 자신의 상황에 맞게 수정하세요.
+*(상세 내용은 영어 버전 README_EN.md의 하단을 참고하세요.)*
