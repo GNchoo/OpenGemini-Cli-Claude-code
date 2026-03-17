@@ -30,7 +30,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0") or 0)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_BIN = os.getenv("GEMINI_BIN", "/usr/local/share/npm-global/bin/gemini").strip()
-GEMINI_MODEL_DEFAULT = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+GEMINI_MODEL_DEFAULT = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 GEMINI_WORKDIR = os.getenv("GEMINI_WORKDIR", os.getcwd()).strip()
 GEMINI_INCLUDE_DIRS = os.getenv("GEMINI_INCLUDE_DIRS", "").strip()
 GEMINI_APPROVAL_MODE = os.getenv("GEMINI_APPROVAL_MODE", "yolo").strip()  # default|auto_edit|yolo|plan
@@ -38,7 +38,7 @@ GEMINI_SANDBOX = os.getenv("GEMINI_SANDBOX", "true").strip().lower() in ("1", "t
 CLAUDE_BIN = os.getenv("CLAUDE_BIN", "/home/fallman/.npm-global/bin/claude").strip()
 DEFAULT_ENGINE = os.getenv("DEFAULT_ENGINE", "gemini").lower()
 MSG_CHUNK = 3500
-ENGINE_EXEC_TIMEOUT_SEC = int(os.getenv("ENGINE_EXEC_TIMEOUT_SEC", "1200") or 1200)
+ENGINE_EXEC_TIMEOUT_SEC = int(os.getenv("ENGINE_EXEC_TIMEOUT_SEC", "600") or 600)
 ENGINE_RESPONSE_TIMEOUT_SEC = int(
     os.getenv("ENGINE_RESPONSE_TIMEOUT_SEC", str(ENGINE_EXEC_TIMEOUT_SEC + 120)) or (ENGINE_EXEC_TIMEOUT_SEC + 120)
 )
@@ -732,11 +732,23 @@ ENGINES = {} # chat_id -> BaseAgentEngine
 
 def get_engine(chat_id: int, engine_type: str = "gemini", model: Optional[str] = None) -> BaseAgentEngine:
     key = (chat_id, engine_type)
+    
+    # 모델이 지정되지 않았을 경우 기본값 적용
+    if model is None:
+        if engine_type == "gemini":
+            model = GEMINI_MODEL_DEFAULT
+        # claude는 엔진 내부적으로 처리하거나 나중에 필요시 추가
+
     if key not in ENGINES:
         if engine_type == "claude":
             ENGINES[key] = ClaudeAgentEngine(chat_id, CLAUDE_BIN, model)
         else:
             ENGINES[key] = GeminiAgentEngine(chat_id, GEMINI_BIN, model)
+    else:
+        # 이미 존재하는 엔진의 모델이 다를 경우 업데이트
+        if model and ENGINES[key].model != model:
+            ENGINES[key].model = model
+
     return ENGINES[key]
 
 RUN_LOCK = asyncio.Lock()
@@ -773,6 +785,17 @@ def _chunk_text(text: str, size: int = MSG_CHUNK) -> List[str]:
     return chunks
 
 
+async def _typing_keepalive(bot, chat_id: int, stop_event: asyncio.Event, interval_sec: float = 4.0):
+    """Send Telegram typing action repeatedly until stop_event is set."""
+    while not stop_event.is_set():
+        try:
+            await bot.send_chat_action(chat_id, ChatAction.TYPING)
+        except Exception as e:
+            print(f"[bot] typing keepalive failed: {e}")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_sec)
+        except asyncio.TimeoutError:
+            continue
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -999,15 +1022,23 @@ async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ]
         msg = "🤖 *Claude 모델 선택*\n현재 설정: `{}`\n\n사용할 모델을 선택하세요:".format(engine.model or "Default")
     else:
-        # Gemini models
+        # Gemini models - 모든 사용 가능한 모델
         keyboard = [
             [
-                InlineKeyboardButton("Pro 3.1", callback_data="set_model:gemini-3.1-pro-preview"),
-                InlineKeyboardButton("Flash 3", callback_data="set_model:gemini-3-flash-preview")
+                InlineKeyboardButton("3.1 Pro Preview", callback_data="set_model:gemini-3.1-pro-preview"),
+                InlineKeyboardButton("3.1 Flash Preview", callback_data="set_model:gemini-3.1-flash-preview")
             ],
             [
-                InlineKeyboardButton("Pro 2.5", callback_data="set_model:gemini-2.5-pro"),
-                InlineKeyboardButton("Flash 2.5", callback_data="set_model:gemini-2.5-flash")
+                InlineKeyboardButton("2.5 Pro", callback_data="set_model:gemini-2.5-pro"),
+                InlineKeyboardButton("2.5 Flash", callback_data="set_model:gemini-2.5-flash")
+            ],
+            [
+                InlineKeyboardButton("2.0 Flash", callback_data="set_model:gemini-2.0-flash"),
+                InlineKeyboardButton("2.0 Flash Lite", callback_data="set_model:gemini-2.0-flash-lite-preview-02-05")
+            ],
+            [
+                InlineKeyboardButton("1.5 Pro", callback_data="set_model:gemini-1.5-pro"),
+                InlineKeyboardButton("1.5 Flash", callback_data="set_model:gemini-1.5-flash")
             ],
             [
                 InlineKeyboardButton("Default", callback_data="set_model:None")
@@ -1169,14 +1200,20 @@ async def command_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     engine_type = context.user_data.get("engine", DEFAULT_ENGINE)
     engine = get_engine(chat_id, engine_type)
     
-    await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
     try:
-        async with asyncio.timeout(300):
+        async with asyncio.timeout(ENGINE_EXEC_TIMEOUT_SEC):
             async with RUN_LOCK:
                 out = await engine.query(full_cmd)
     except TimeoutError:
         engine.stop()
-        out = "⏳ 요청 처리 시간이 초과(300초)되어 엔진을 재시작했습니다. 다시 시도해주세요."
+        out = f"⏳ 요청 처리 시간이 초과({ENGINE_EXEC_TIMEOUT_SEC}초)되어 엔진을 재시작했습니다. 다시 시도해주세요."
+    except Exception as e:
+        out = f"❌ 명령 처리 중 오류가 발생했습니다: {e}"
+    finally:
+        stop_event.set()
+        await typing_task
     await _respond_with_engine_output(update, engine, out)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1221,15 +1258,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # 1. Record workspace state
     old_state = _get_workspace_state(GEMINI_WORKDIR)
 
-    await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
 
     try:
-        async with asyncio.timeout(300):
+        async with asyncio.timeout(ENGINE_EXEC_TIMEOUT_SEC):
             async with RUN_LOCK:
                 out = await engine.query(text)
     except TimeoutError:
         engine.stop()
-        out = "⏳ 응답이 지연(300초 초과)되어 엔진을 재시작했습니다. 같은 메시지를 한 번 더 보내주세요."
+        out = f"⏳ 응답이 지연({ENGINE_EXEC_TIMEOUT_SEC}초 초과)되어 엔진을 재시작했습니다. 같은 메시지를 한 번 더 보내주세요."
+    except Exception as e:
+        out = f"❌ 요청 처리 중 오류가 발생했습니다: {e}"
+    finally:
+        stop_event.set()
+        await typing_task
+
     await _respond_with_engine_output(update, engine, out)
 
     # 2. Upload any new or modified files
@@ -1407,9 +1451,11 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if data.startswith("set_engine:"):
         engine_type = data.split(":")[1]
         context.user_data["engine"] = engine_type
+        # 엔진 변경 시 모델 설정 초기화하여 충돌 방지
+        context.user_data["model"] = None
         # Update the message to remove buttons and show confirmation
         await query.edit_message_text(
-            f"✅ 엔진이 `{engine_type}`으로 변경되었습니다.",
+            f"✅ 엔진이 `{engine_type}`으로 변경되었습니다.\n(모델 설정이 기본값으로 초기화되었습니다)",
             parse_mode=ParseMode.MARKDOWN
         )
         return
@@ -1504,8 +1550,9 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     
     await query.edit_message_reply_markup(reply_markup=None)
-    await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
-    
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
+
     try:
         async with asyncio.timeout(120):
             async with RUN_LOCK:
@@ -1513,6 +1560,12 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except TimeoutError:
         engine.stop()
         out = "⏳ 입력 처리 시간이 초과되어 엔진을 재시작했습니다. 다시 시도해주세요."
+    except Exception as e:
+        out = f"❌ 입력 처리 중 오류가 발생했습니다: {e}"
+    finally:
+        stop_event.set()
+        await typing_task
+
     await _respond_with_engine_output(update, engine, out)
 
 async def post_init(app: Application) -> None:
