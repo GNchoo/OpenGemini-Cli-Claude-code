@@ -200,7 +200,11 @@ class SharedSessionHistory:
                 elif role == "user":
                     conv_lines.append(f"User: {content}")
                 elif role == "assistant":
-                    conv_lines.append(f"Assistant ({engine}): {content}")
+                    # Skip ultra-noisy historical stack traces from context injection.
+                    if content and len(content) > 5000:
+                        conv_lines.append(f"Assistant ({engine}): [긴 로그 응답 생략]")
+                    else:
+                        conv_lines.append(f"Assistant ({engine}): {content}")
             if conv_lines:
                 parts.append("[대화 기록]\n" + "\n".join(conv_lines))
 
@@ -785,6 +789,32 @@ def _chunk_text(text: str, size: int = MSG_CHUNK) -> List[str]:
     if cur:
         chunks.append(cur)
     return chunks
+
+
+def _compact_for_memory(text: str, max_len: int = 1200) -> str:
+    """Avoid polluting transcript with huge stack traces / raw logs."""
+    if not text:
+        return ""
+    cleaned = text.strip()
+
+    # Normalize known noisy engine log outputs to short summaries.
+    if "MODEL_CAPACITY_EXHAUSTED" in cleaned or "status: 429" in cleaned:
+        return "모델 용량 부족(429)으로 응답 실패. 다른 모델/재시도 필요."
+    if "ModelNotFoundError" in cleaned or "Requested entity was not found" in cleaned:
+        return "모델 미지원/미존재(404)로 응답 실패. 모델명 확인 필요."
+    if "missing pgrep output" in cleaned:
+        return "엔진 런타임 상태 확인 실패(missing pgrep output)."
+
+    # Strip very long raw error blocks.
+    if cleaned.startswith("⚠️ 실행 결과/로그:"):
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if len(cleaned) > max_len:
+            return cleaned[:max_len] + " ...(truncated)"
+        return cleaned
+
+    if len(cleaned) > max_len:
+        return cleaned[:max_len] + " ...(truncated)"
+    return cleaned
 
 
 async def _typing_keepalive(bot, chat_id: int, stop_event: asyncio.Event, interval_sec: float = 4.0):
@@ -1433,8 +1463,8 @@ async def _respond_with_engine_output(update: Update, engine: BaseAgentEngine, o
         reply_markup = InlineKeyboardMarkup(keyboard)
         output += "\n\n⚠️ *도구 실행 승인이 필요합니다.*"
 
-    # 1. Assistant 응답을 공유 기록에 저장
-    engine.shared_history.add_message("assistant", output, engine.engine_name)
+    # 1. Assistant 응답을 공유 기록에 저장 (과도한 로그는 축약)
+    engine.shared_history.add_message("assistant", _compact_for_memory(output), engine.engine_name)
     
     # 2. 사용자에게 응답 전송
     for ch in _chunk_text(output):
