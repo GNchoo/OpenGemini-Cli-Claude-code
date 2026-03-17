@@ -42,6 +42,8 @@ ENGINE_EXEC_TIMEOUT_SEC = int(os.getenv("ENGINE_EXEC_TIMEOUT_SEC", "600") or 600
 ENGINE_RESPONSE_TIMEOUT_SEC = int(
     os.getenv("ENGINE_RESPONSE_TIMEOUT_SEC", str(ENGINE_EXEC_TIMEOUT_SEC + 120)) or (ENGINE_EXEC_TIMEOUT_SEC + 120)
 )
+# UX safeguard: avoid silent waits that feel like hangs, regardless of overly large env timeout.
+USER_VISIBLE_MAX_WAIT_SEC = int(os.getenv("USER_VISIBLE_MAX_WAIT_SEC", "180") or 180)
 SESSION_DIR = os.path.join(GEMINI_WORKDIR, ".sessions")
 LOCK_FILE = os.path.join(GEMINI_WORKDIR, ".bot.lock")
 SHARED_SESSION_DIR = os.path.expanduser("~/.opengemini/sessions")
@@ -1217,13 +1219,14 @@ async def command_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
     nudge_task = asyncio.create_task(_processing_nudge(update.message, stop_event, delay_sec=20.0))
+    effective_timeout = min(ENGINE_EXEC_TIMEOUT_SEC, USER_VISIBLE_MAX_WAIT_SEC)
     try:
-        async with asyncio.timeout(ENGINE_EXEC_TIMEOUT_SEC):
+        async with asyncio.timeout(effective_timeout):
             async with RUN_LOCK:
                 out = await engine.query(full_cmd)
     except TimeoutError:
         engine.stop()
-        out = f"⏳ 요청 처리 시간이 초과({ENGINE_EXEC_TIMEOUT_SEC}초)되어 엔진을 재시작했습니다. 다시 시도해주세요."
+        out = f"⏳ 요청 처리 시간이 초과({effective_timeout}초)되어 엔진을 재시작했습니다. 다시 시도해주세요."
     except Exception as e:
         out = f"❌ 명령 처리 중 오류가 발생했습니다: {e}"
     finally:
@@ -1277,14 +1280,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
     nudge_task = asyncio.create_task(_processing_nudge(update.message, stop_event, delay_sec=20.0))
+    effective_timeout = min(ENGINE_EXEC_TIMEOUT_SEC, USER_VISIBLE_MAX_WAIT_SEC)
 
     try:
-        async with asyncio.timeout(ENGINE_EXEC_TIMEOUT_SEC):
+        async with asyncio.timeout(effective_timeout):
             async with RUN_LOCK:
                 out = await engine.query(text)
     except TimeoutError:
         engine.stop()
-        out = f"⏳ 응답이 지연({ENGINE_EXEC_TIMEOUT_SEC}초 초과)되어 엔진을 재시작했습니다. 같은 메시지를 한 번 더 보내주세요."
+        out = f"⏳ 응답이 지연({effective_timeout}초 초과)되어 엔진을 재시작했습니다. 같은 메시지를 한 번 더 보내주세요."
     except Exception as e:
         out = f"❌ 요청 처리 중 오류가 발생했습니다: {e}"
     finally:
@@ -1571,14 +1575,15 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
     nudge_task = asyncio.create_task(_processing_nudge(query.message, stop_event, delay_sec=20.0))
+    effective_timeout = min(120, USER_VISIBLE_MAX_WAIT_SEC)
 
     try:
-        async with asyncio.timeout(120):
+        async with asyncio.timeout(effective_timeout):
             async with RUN_LOCK:
                 out = await engine.send_input(action)
     except TimeoutError:
         engine.stop()
-        out = "⏳ 입력 처리 시간이 초과되어 엔진을 재시작했습니다. 다시 시도해주세요."
+        out = f"⏳ 입력 처리 시간이 초과({effective_timeout}초)되어 엔진을 재시작했습니다. 다시 시도해주세요."
     except Exception as e:
         out = f"❌ 입력 처리 중 오류가 발생했습니다: {e}"
     finally:
