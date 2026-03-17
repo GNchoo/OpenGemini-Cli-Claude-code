@@ -798,6 +798,20 @@ async def _typing_keepalive(bot, chat_id: int, stop_event: asyncio.Event, interv
             continue
 
 
+async def _processing_nudge(message, stop_event: asyncio.Event, delay_sec: float = 20.0):
+    """If processing is still running after delay, send one lightweight progress nudge."""
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=delay_sec)
+        return
+    except asyncio.TimeoutError:
+        pass
+
+    try:
+        await message.reply_text("⏳ 아직 처리 중입니다… 곧 답변 보낼게요.")
+    except Exception as e:
+        print(f"[bot] progress nudge failed: {e}")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         return
@@ -1202,6 +1216,7 @@ async def command_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
+    nudge_task = asyncio.create_task(_processing_nudge(update.message, stop_event, delay_sec=20.0))
     try:
         async with asyncio.timeout(ENGINE_EXEC_TIMEOUT_SEC):
             async with RUN_LOCK:
@@ -1214,6 +1229,7 @@ async def command_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     finally:
         stop_event.set()
         await typing_task
+        await nudge_task
     await _respond_with_engine_output(update, engine, out)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1260,6 +1276,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
+    nudge_task = asyncio.create_task(_processing_nudge(update.message, stop_event, delay_sec=20.0))
 
     try:
         async with asyncio.timeout(ENGINE_EXEC_TIMEOUT_SEC):
@@ -1273,6 +1290,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     finally:
         stop_event.set()
         await typing_task
+        await nudge_task
 
     await _respond_with_engine_output(update, engine, out)
 
@@ -1552,6 +1570,7 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await query.edit_message_reply_markup(reply_markup=None)
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_keepalive(context.bot, chat_id, stop_event))
+    nudge_task = asyncio.create_task(_processing_nudge(query.message, stop_event, delay_sec=20.0))
 
     try:
         async with asyncio.timeout(120):
@@ -1565,6 +1584,7 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     finally:
         stop_event.set()
         await typing_task
+        await nudge_task
 
     await _respond_with_engine_output(update, engine, out)
 
