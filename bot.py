@@ -817,6 +817,31 @@ def _compact_for_memory(text: str, max_len: int = 1200) -> str:
     return cleaned
 
 
+def _normalize_user_output(text: str) -> str:
+    """Convert noisy engine dumps to concise, user-friendly errors."""
+    if not text:
+        return "(No output)"
+
+    t = text.strip()
+    if "MODEL_CAPACITY_EXHAUSTED" in t or "No capacity available for model" in t or "status: 429" in t:
+        return "⚠️ 현재 선택한 모델이 혼잡(용량 부족) 상태입니다. 잠시 후 다시 시도하거나 /model에서 다른 모델로 바꿔주세요."
+
+    if "ModelNotFoundError" in t or "Requested entity was not found" in t or "code: 404" in t:
+        return "⚠️ 현재 선택한 모델명이 미지원/미존재 상태입니다. /model에서 다른 모델을 선택해 주세요."
+
+    if "ENAMETOOLONG" in t:
+        return "⚠️ 내부 로그 문자열이 비정상적으로 길어져 요청 처리에 실패했습니다. 세션 로그를 정리했고, 다시 시도해 주세요."
+
+    if "missing pgrep output" in t and len(t) < 400:
+        return "⚠️ 엔진 런타임 상태 확인 중 일시 오류가 발생했습니다. 다시 시도해 주세요."
+
+    # Guard against huge raw trace dumps reaching chat.
+    if len(t) > 5000 and ("gaxios" in t or "trace" in t.lower() or "headers:" in t):
+        return "⚠️ 엔진에서 긴 내부 오류 로그가 발생했습니다. 핵심 원인은 모델 혼잡/미지원 가능성이 높습니다. /model 변경 후 다시 시도해 주세요."
+
+    return text
+
+
 async def _typing_keepalive(bot, chat_id: int, stop_event: asyncio.Event, interval_sec: float = 4.0):
     """Send Telegram typing action repeatedly until stop_event is set."""
     while not stop_event.is_set():
@@ -1447,9 +1472,10 @@ async def _send_safe_document(update: Update, path: str, caption: str):
             print(f"[bot] Final document send failed: {e2}")
 
 async def _respond_with_engine_output(update: Update, engine: BaseAgentEngine, output: str):
+    output = _normalize_user_output(output)
     if not output:
         output = "(No output)"
-    
+
     # Check if waiting for approval
     reply_markup = None
     if engine.is_waiting_for_approval:
