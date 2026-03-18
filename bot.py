@@ -52,6 +52,9 @@ os.makedirs(SESSION_DIR, exist_ok=True)
 os.makedirs(SHARED_SESSION_DIR, exist_ok=True)
 os.makedirs(MEMORY_DIR, exist_ok=True)
 
+# Morning's Shared Session (OpenClaw style)
+CLAW_SHARED_DIR = os.path.expanduser("~/.openclaw/workspace/shared-session")
+
 # 토큰 추정: 영문 4자=1토큰, 한글 1.5자=1토큰 (근사치)
 def _estimate_tokens(text: str) -> int:
     korean = sum(1 for c in text if '\uAC00' <= c <= '\uD7A3')
@@ -184,8 +187,26 @@ class SharedSessionHistory:
 
         # (A) 장기 메모리
         ltm = self.get_long_term_memory()
-        if ltm:
-            parts.append(f"[장기 기억 (MEMORY)]\n{ltm}")
+        
+        # 주입: 오전에 구축된 Shared Session 파일들 연동
+        claw_parts = []
+        if os.path.exists(CLAW_SHARED_DIR):
+            for fname in ["CONTEXT.md", "TODO.md", "LAST_RESULT.md"]:
+                fpath = os.path.join(CLAW_SHARED_DIR, fname)
+                if os.path.exists(fpath):
+                    try:
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            content = f.read().strip()
+                            if content:
+                                claw_parts.append(f"[{fname}]\n{content}")
+                    except: pass
+        
+        if ltm or claw_parts:
+            parts.append("[장기 기억 및 작업 맥락 (Context)]")
+            if ltm:
+                parts.append(f"--- MEMORY ---\n{ltm}")
+            if claw_parts:
+                parts.append("\n".join(claw_parts))
 
         # (B) transcript: compaction + recent turns
         entries = self._load_transcript()
@@ -589,7 +610,7 @@ class ClaudeAgentEngine(BaseAgentEngine):
             use_resume = os.path.exists(session_file)
             
             args = [
-                self.binary, "-p", text,
+                self.binary, "-p", enhanced_prompt,
             ]
             
             if self.approval_mode == "yolo":
@@ -604,7 +625,10 @@ class ClaudeAgentEngine(BaseAgentEngine):
             else:
                 args.extend(["--session-id", self.session_id])
                 print(f"[ClaudeAgentEngine] Starting new session: {self.session_id}")
-                
+            
+            # Stabilization for non-interactive bot usage
+            args.extend(["--print", "--output-format", "text"])
+            
             if self.model:
                 args.extend(["--model", self.model])
                 
@@ -612,6 +636,7 @@ class ClaudeAgentEngine(BaseAgentEngine):
             cmd = " ".join(shlex.quote(a) for a in args)
             
             try:
+                # Use pexpect.run for single-shot execution
                 output, exitstatus = await asyncio.get_event_loop().run_in_executor(
                     None, lambda: pexpect.run(cmd, env=env, encoding='utf-8', timeout=ENGINE_EXEC_TIMEOUT_SEC, withexitstatus=True, cwd=actual_workdir)
                 )
@@ -798,8 +823,8 @@ def _compact_for_memory(text: str, max_len: int = 1200) -> str:
     cleaned = text.strip()
 
     # Normalize known noisy engine log outputs to short summaries.
-    if "MODEL_CAPACITY_EXHAUSTED" in cleaned or "status: 429" in cleaned:
-        return "모델 용량 부족(429)으로 응답 실패. 다른 모델/재시도 필요."
+    if "MODEL_CAPACITY_EXHAUSTED" in cleaned or "status: 429" in cleaned or "Too Many Requests" in cleaned:
+        return "모델 용량 부족(429)으로 응답 실패. 다른 모델(2.5 등)로 변경하거나 잠시 후 재시도 필요."
     if "ModelNotFoundError" in cleaned or "Requested entity was not found" in cleaned:
         return "모델 미지원/미존재(404)로 응답 실패. 모델명 확인 필요."
     if "missing pgrep output" in cleaned:
@@ -1093,25 +1118,18 @@ async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ]
         msg = "🤖 *Claude 모델 선택*\n현재 설정: `{}`\n\n사용할 모델을 선택하세요:".format(engine.model or "Default")
     else:
-        # Gemini models - 모든 사용 가능한 모델
+        # Gemini models - 2026년 3월 최신 모델 목록 (2.5 미만 미지원 반영)
         keyboard = [
             [
+                InlineKeyboardButton("2.5 Flash (추천)", callback_data="set_model:gemini-2.5-flash"),
+                InlineKeyboardButton("2.5 Pro", callback_data="set_model:gemini-2.5-pro")
+            ],
+            [
+                InlineKeyboardButton("2.5 Flash-Lite", callback_data="set_model:gemini-2.5-flash-lite"),
+                InlineKeyboardButton("3 Flash Preview", callback_data="set_model:gemini-3-flash-preview")
+            ],
+            [
                 InlineKeyboardButton("3.1 Pro Preview", callback_data="set_model:gemini-3.1-pro-preview"),
-                InlineKeyboardButton("3.1 Flash Preview", callback_data="set_model:gemini-3.1-flash-preview")
-            ],
-            [
-                InlineKeyboardButton("2.5 Pro", callback_data="set_model:gemini-2.5-pro"),
-                InlineKeyboardButton("2.5 Flash", callback_data="set_model:gemini-2.5-flash")
-            ],
-            [
-                InlineKeyboardButton("2.0 Flash", callback_data="set_model:gemini-2.0-flash"),
-                InlineKeyboardButton("2.0 Flash Lite", callback_data="set_model:gemini-2.0-flash-lite-preview-02-05")
-            ],
-            [
-                InlineKeyboardButton("1.5 Pro", callback_data="set_model:gemini-1.5-pro"),
-                InlineKeyboardButton("1.5 Flash", callback_data="set_model:gemini-1.5-flash")
-            ],
-            [
                 InlineKeyboardButton("Default", callback_data="set_model:None")
             ]
         ]
