@@ -44,6 +44,35 @@ mkdir -p ~/.openclaw/workspace/shared-session
 # 5. 실행 권한 부여
 chmod +x start_bot.sh 2>/dev/null || true
 
+# 6. systemd 서비스 등록 (자동 재시작 설정)
+echo "🔄 시스템 재부팅 시 자동 실행 설정 중..."
+SERVICE_FILE="$HOME/.config/systemd/user/opengemini.service"
+mkdir -p "$(dirname "$SERVICE_FILE")"
+
+cat <<EOF > "$SERVICE_FILE"
+[Unit]
+Description=OpenGemini Agent Bot
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$(pwd)/venv/bin/python3 -u $(pwd)/bot.py
+WorkingDirectory=$(pwd)
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+EnvironmentFile=$(pwd)/.env
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable opengemini.service
+loginctl enable-linger "$USER"
+
 echo "✅ 모든 준비가 완료되었습니다!"
 echo "1. .env 파일에서 TELEGRAM_TOKEN과 ALLOWED_USER_ID를 설정하세요."
-echo "2. bash start_bot.sh 명령어로 봇을 실행하세요."
+echo "2. 'systemctl --user start opengemini.service' 명령어로 봇을 시작하거나,"
+echo "3. 'bash start_bot.sh' 명령어로 수동 시작할 수 있습니다."

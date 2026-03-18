@@ -26,9 +26,24 @@ bash setup.sh
 - `ALLOWED_USER_ID`: 봇을 사용할 사용자 ID
 
 ### 2. 실행 (Start)
+수동 실행:
 ```bash
 bash start_bot.sh
 ```
+
+**자동 실행 (추천)**:
+`setup.sh` 단계에서 이미 서비스가 활성화되었습니다. 다음 명령어로 관리할 수 있습니다:
+```bash
+# 봇 시작
+systemctl --user start opengemini.service
+# 봇 중지
+systemctl --user stop opengemini.service
+# 상태 확인
+systemctl --user status opengemini.service
+# 로그 확인
+journalctl --user -u opengemini.service -f
+```
+시스템 재부팅 시에도 자동으로 실행되도록 `linger` 설정이 포함되어 있습니다.
 
 ## 주요 명령어
 
